@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Quản trị – GameSlither</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/admin/style.css">
+</head>
+<body>
+  <!-- Đăng nhập -->
+  <main id="loginView" class="login hidden">
+    <form id="loginForm" class="login-card" autocomplete="on">
+      <div class="brand"><img src="/favicon.svg" alt="" width="32" height="32"> <span class="name">Game<b>Slither</b></span> <span class="badge">Quản trị</span></div>
+      <label>Tên đăng nhập<input id="lgUser" name="username" autocomplete="username" required></label>
+      <label>Mật khẩu<input id="lgPass" name="password" type="password" autocomplete="current-password" required></label>
+      <button class="btn" type="submit">Đăng nhập</button>
+      <p id="lgError" class="error" role="alert"></p>
+    </form>
+  </main>
+
+  <!-- Chưa cấu hình -->
+  <main id="disabledView" class="login hidden">
+    <div class="login-card">
+      <div class="brand"><img src="/favicon.svg" alt="" width="32" height="32"> <span class="name">Game<b>Slither</b></span> <span class="badge">Quản trị</span></div>
+      <p id="disabledMsg"></p>
+    </div>
+  </main>
+
+  <!-- Bảng điều khiển -->
+  <div id="appView" class="hidden">
+    <header class="topbar">
+      <div class="brand"><img src="/favicon.svg" alt="" width="28" height="28"> <span class="name">Game<b>Slither</b></span> <span class="badge">Quản trị</span></div>
+      <nav class="tabs" role="tablist">
+        <button role="tab" data-tab="stats" class="on">Thống kê</button>
+        <button role="tab" data-tab="seo">Cài đặt SEO</button>
+        <button role="tab" data-tab="account">Tài khoản</button>
+      </nav>
+      <div class="topbar-right">
+        <a href="/" target="_blank" rel="noopener">Xem website ↗</a>
+        <button id="logout" class="ghost">Đăng xuất</button>
+      </div>
+    </header>
+
+    <!-- Thống kê -->
+    <section id="tab-stats" class="page">
+      <div class="page-head">
+        <h1>Thống kê</h1>
+        <div class="range" role="group" aria-label="Khoảng thời gian">
+          <button data-days="7">7 ngày</button>
+          <button data-days="30" class="on">30 ngày</button>
+          <button data-days="90">90 ngày</button>
+        </div>
+      </div>
+
+      <div class="kpis">
+        <div class="kpi"><div class="kpi-label">Lượt truy cập</div><div class="kpi-value" id="kVisits">–</div><div class="kpi-sub" id="kVisitsToday"></div></div>
+        <div class="kpi"><div class="kpi-label">Khách (không trùng)</div><div class="kpi-value" id="kVisitors">–</div><div class="kpi-sub" id="kVisitorsToday"></div></div>
+        <div class="kpi"><div class="kpi-label">Lượt chơi</div><div class="kpi-value" id="kPlays">–</div><div class="kpi-sub" id="kPlaysToday"></div></div>
+        <div class="kpi live"><div class="kpi-label"><i class="dot"></i>Đang online</div><div class="kpi-value" id="kOnline">–</div><div class="kpi-sub" id="kPlaying"></div></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head">
+          <h2>Theo ngày</h2>
+          <div class="legend" id="legend"></div>
+        </div>
+        <div class="chart" id="chart"><div class="tooltip hidden" id="tooltip"></div></div>
+        <details class="table-view">
+          <summary>Xem dạng bảng</summary>
+          <div class="table-wrap"><table id="dailyTable"></table></div>
+        </details>
+      </div>
+
+      <div class="grid2">
+        <div class="panel">
+          <div class="panel-head"><h2>Quốc gia truy cập</h2></div>
+          <div id="countries" class="bars"></div>
+          <p class="note hidden" id="geoNote">Quốc gia chỉ xác định được khi website chạy sau <b>Cloudflare</b> (miễn phí), hoặc khi cài thêm gói <code>geoip-lite</code> trên server.</p>
+        </div>
+        <div class="panel">
+          <div class="panel-head"><h2>Thiết bị</h2></div>
+          <div id="devices" class="bars"></div>
+          <div class="panel-head sub"><h2>Nguồn truy cập</h2></div>
+          <div id="referrers" class="bars"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Cài đặt SEO -->
+    <section id="tab-seo" class="page hidden">
+      <div class="page-head"><h1>Cài đặt SEO</h1>
+        <div class="range lang-range" id="seoLang" role="group" aria-label="Ngôn ngữ trang"></div>
+      </div>
+      <div class="grid2 seo-grid">
+        <form id="seoForm" class="panel">
+          <label>Tiêu đề trang (title)
+            <input id="sTitle" maxlength="120" required>
+            <span class="hint"><span id="cTitle"></span> ký tự · nên từ 50–60 để Google không cắt</span>
+          </label>
+          <label>Mô tả (meta description)
+            <textarea id="sDesc" rows="4" maxlength="320" required></textarea>
+            <span class="hint"><span id="cDesc"></span> ký tự · nên từ 120–160</span>
+          </label>
+          <label>Từ khoá (meta keywords)
+            <input id="sKeys" maxlength="400">
+            <span class="hint">Cách nhau bằng dấu phẩy. Google gần như không dùng thẻ này, nhưng một số công cụ khác có đọc.</span>
+          </label>
+          <label>Mã xác minh Google Search Console
+            <input id="sGsc" maxlength="200" placeholder="Dán mã hoặc cả thẻ &lt;meta name=&quot;google-site-verification&quot; …&gt;">
+            <span class="hint">Lấy trong Search Console → Thêm tài sản → Thẻ HTML. Dùng chung cho cả 2 ngôn ngữ.</span>
+          </label>
+          <div class="form-actions">
+            <button class="btn" type="submit">Lưu thay đổi</button>
+            <button class="ghost" type="button" id="seoReset">Khôi phục mặc định</button>
+          </div>
+        </form>
+        <div class="panel">
+          <div class="panel-head"><h2>Xem trước trên Google</h2></div>
+          <div class="serp">
+            <div class="serp-url" id="pUrl"></div>
+            <div class="serp-title" id="pTitle"></div>
+            <div class="serp-desc" id="pDesc"></div>
+          </div>
+          <p class="note">Google có thể tự viết lại tiêu đề/mô tả. Sau khi đổi, thường mất vài ngày tới vài tuần để kết quả tìm kiếm cập nhật.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Tài khoản -->
+    <section id="tab-account" class="page hidden">
+      <div class="page-head"><h1>Tài khoản</h1></div>
+      <div id="forceBanner" class="banner hidden" role="alert">
+        <b>Bạn đang dùng mật khẩu mặc định (12345678).</b>
+        Ai cũng có thể đoán được mật khẩu này — hãy đổi mật khẩu mới để tiếp tục dùng trang quản trị.
+      </div>
+      <form id="pwForm" class="panel narrow" autocomplete="on">
+        <input type="text" name="username" autocomplete="username" value="admin" hidden>
+        <label>Mật khẩu hiện tại<input id="pwCur" type="password" autocomplete="current-password" required></label>
+        <label>Mật khẩu mới<input id="pwNew" type="password" autocomplete="new-password" minlength="8" required>
+          <span class="hint">Ít nhất 8 ký tự. Nên dài hơn 12 ký tự, trộn chữ hoa, chữ thường, số và ký hiệu.</span></label>
+        <label>Nhập lại mật khẩu mới<input id="pwConfirm" type="password" autocomplete="new-password" minlength="8" required></label>
+        <div class="form-actions"><button class="btn" type="submit">Đổi mật khẩu</button></div>
+        <p id="pwError" class="error" role="alert"></p>
+        <p class="hint">Đổi mật khẩu xong, các phiên đăng nhập ở máy khác sẽ bị đăng xuất.</p>
+      </form>
+    </section>
+  </div>
+
+  <div id="toast" class="toast hidden" role="status"></div>
+  <script src="/admin/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+{
+  "name": "ran-io",
+  "version": "1.0.0",
+  "description": "Game rắn online nhiều người chơi kiểu slither.io",
+  "main": "server.js",
+  "scripts": {
+    "start": "node --env-file-if-exists=.env server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}
