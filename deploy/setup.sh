@@ -14,6 +14,11 @@
 #   REPO=https://...           địa chỉ repo (repo private: https://<token>@github.com/...)
 #   SKIP_SSL=1                 bỏ qua bước cấp chứng chỉ SSL
 set -euo pipefail
+# Không hỏi gì khi cài gói, và KHÔNG tự khởi động lại dịch vụ (needrestart chỉ liệt kê):
+# tránh rớt SSH và gián đoạn các dự án khác trên cùng VPS.
+export DEBIAN_FRONTEND=noninteractive
+export NEEDRESTART_MODE=l
+export NEEDRESTART_SUSPEND=1
 
 DOMAIN="${DOMAIN:-gameslither.io}"
 EMAIL="${EMAIL:?Hãy đặt EMAIL=... (dùng để đăng ký chứng chỉ SSL)}"
@@ -37,6 +42,7 @@ if ss -ltnp "( sport = :80 )" | grep LISTEN | grep -vq nginx; then
 fi
 
 echo "==> Cài gói hệ thống"
+dpkg --configure -a || true   # hoàn tất nếu lần cài trước bị ngắt giữa chừng
 apt-get update -y
 apt-get install -y ca-certificates curl git nginx certbot python3-certbot-nginx sqlite3 xz-utils
 
