@@ -11,6 +11,8 @@ const START_MASS = 10;
 const MIN_BOOST_MASS = 15;
 const MAX_R = 46;
 const CELL = 120;
+const SECTOR = 500;   // kích thước vùng giữ mật độ mồi
+const DROP_TTL = 120_000;   // mồi rơi từ rắn tồn tại ~2 phút
 // Mật độ mồi: gốc 2200 viên cho bản đồ bán kính 4000, nhân với FOOD_MULT (mặc định 2 → 4400 viên)
 const FOOD_MULT = Math.min(5, Math.max(0.5, Number(process.env.FOOD_MULT) || 2));
 const FOOD_DENSITY = FOOD_MULT * 2200 / (Math.PI * 4000 * 4000);
@@ -63,8 +65,11 @@ class Room {
     this.finished = false;
     this.onFinish = null;
     this.deathOrder = 0;
+    this.natural = new Map();      // vùng -> số mồi tự nhiên đang có
+    this.sectorCap = new Map();    // vùng -> số mồi tự nhiên tối đa
+    this.sectorR = 0;
     const target = this.foodTarget();
-    for (let i = 0; i < target; i++) this.spawnNaturalFood();
+    for (let i = 0, n = 0; i < target * 6 && n < target; i++) if (this.spawnNaturalFood()) n++;
   }
 
   foodTarget() { return Math.round(FOOD_DENSITY * Math.PI * this.worldR * this.worldR); }
@@ -76,10 +81,12 @@ class Room {
     const d = Math.sqrt(Math.random()) * Math.max(10, this.worldR - margin);
     return { x: Math.cos(a) * d, y: Math.sin(a) * d };
   }
-  addFood(x, y, v, hue) {
+  addFood(x, y, v, hue, sector) {
     if (Math.hypot(x, y) > this.worldR - 15) return null;
     const f = { id: nextFoodId++, x: Math.round(x), y: Math.round(y), v, hue,
       cx: Math.floor(x / CELL), cy: Math.floor(y / CELL) };
+    if (sector !== undefined) { f.sector = sector; this.natural.set(sector, (this.natural.get(sector) || 0) + 1); }
+    else f.exp = (this.now || Date.now()) + DROP_TTL * (0.8 + Math.random() * 0.4);   // lệch nhẹ để không biến mất cùng lúc
     this.foods.set(f.id, f);
     const k = cellKey(f.cx, f.cy);
     let s = this.foodGrid.get(k);
@@ -88,7 +95,8 @@ class Room {
     return f;
   }
   removeFood(f) {
-    this.foods.delete(f.id);
+    if (!this.foods.delete(f.id)) return;
+    if (f.sector !== undefined) this.natural.set(f.sector, this.natural.get(f.sector) - 1);
     const k = cellKey(f.cx, f.cy);
     const s = this.foodGrid.get(k);
     if (s) { s.delete(f); if (!s.size) this.foodGrid.delete(k); }
@@ -101,10 +109,30 @@ class Room {
       if (s) for (const f of s) cb(f);
     }
   }
+  // Mồi tự nhiên giữ mật độ đều theo từng vùng SECTOR×SECTOR: chỉ đếm tổng thì mồi dồn ra rìa bản đồ
+  // (ít ai tới) còn vùng giữa bị ăn trống mà không được bù. Mồi rơi từ rắn chết / tăng tốc không tính vào đây.
+  updateSectorCaps() {
+    if (Math.abs(this.worldR - this.sectorR) < 40) return;
+    this.sectorR = this.worldR;
+    this.sectorCap.clear();
+    const n = Math.ceil(this.worldR / SECTOR), S = 8, lim = (this.worldR - 20) ** 2;
+    for (let sx = -n; sx < n; sx++) for (let sy = -n; sy < n; sy++) {
+      let inside = 0;   // phần diện tích vùng nằm trong bản đồ (lấy mẫu S×S điểm)
+      for (let i = 0; i < S; i++) for (let j = 0; j < S; j++) {
+        const x = (sx + (i + 0.5) / S) * SECTOR, y = (sy + (j + 0.5) / S) * SECTOR;
+        if (x * x + y * y < lim) inside++;
+      }
+      if (inside) this.sectorCap.set(cellKey(sx, sy), FOOD_DENSITY * SECTOR * SECTOR * inside / (S * S));
+    }
+  }
+  // Thử đặt 1 viên mồi ở điểm ngẫu nhiên; bỏ qua nếu vùng đó đã đủ mồi. Trả về true nếu đặt được.
   spawnNaturalFood() {
+    this.updateSectorCaps();
     const p = this.randomPoint(20);
+    const sector = cellKey(Math.floor(p.x / SECTOR), Math.floor(p.y / SECTOR));
+    if ((this.natural.get(sector) || 0) >= (this.sectorCap.get(sector) || 0)) return false;
     const r = Math.random();
-    this.addFood(p.x, p.y, r < 0.75 ? 1 : r < 0.95 ? 2 : 3, Math.floor(Math.random() * 360));
+    return !!this.addFood(p.x, p.y, r < 0.75 ? 1 : r < 0.95 ? 2 : 3, Math.floor(Math.random() * 360), sector);
   }
 
   // ------------------------------------------------------------ snakes
@@ -266,7 +294,10 @@ class Room {
   tick(now) {
     if (!this.running || this.finished) return;
     this.tickNo++;
+    this.now = now;
     if (this.mode === 'paid') this.updateShrink(now);
+    // mồi rơi (rắn chết / tăng tốc) không ai ăn sau DROP_TTL thì biến mất, tránh dồn mồi vô hạn
+    if (this.tickNo % TICK_RATE === 0) for (const f of this.foods.values()) if (f.exp && f.exp < now) this.removeFood(f);
 
     for (const s of this.snakes.values()) if (s.bot) this.botThink(s);
     for (const s of this.snakes.values()) this.moveSnake(s);
@@ -310,8 +341,8 @@ class Room {
     }
 
     let natural = 0;
-    const target = this.foodTarget();
-    while (this.foods.size < target && natural++ < 40) this.spawnNaturalFood();
+    // Bù mồi dần (tối đa 10 viên/tick = 300 viên/giây) vào những vùng đang thiếu
+    for (let tries = 0; tries < 120 && natural < 10; tries++) if (this.spawnNaturalFood()) natural++;
 
     if (this.bots) {
       let bots = 0, humans = 0;
