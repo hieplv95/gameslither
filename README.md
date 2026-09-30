@@ -28,6 +28,19 @@ Biến môi trường:
 | `ADMIN_USER` / `ADMIN_PASSWORD` | admin / 12345678 | tài khoản trang quản trị `/admin`. Để trống mật khẩu = dùng mặc định 12345678 (bị buộc đổi ở lần đăng nhập đầu) |
 | `SITE_URL` | `http://localhost:PORT` | tên miền thật (vd. `https://tenmien.vn`) — dùng cho thẻ canonical, Open Graph, `robots.txt`, `sitemap.xml` |
 
+## Chạy trên VPS (Ubuntu 22.04/24.04)
+1. DNS: tạo bản ghi **A** `@` và `www` trỏ về IP của VPS (Namecheap → Advanced DNS, hoặc Cloudflare).
+2. SSH vào VPS bằng root rồi chạy:
+   ```
+   curl -fsSL https://raw.githubusercontent.com/hieplv95/gameslither/main/deploy/setup.sh -o setup.sh
+   EMAIL=ban@email.com bash setup.sh            # thêm USE_CLOUDFLARE=1 nếu dùng Cloudflare
+   ```
+   Script cài Node 22 riêng (/opt/node22, không đụng Node hệ thống), cấu hình Nginx riêng cho domain (có WebSocket, không đụng site khác), SSL Let's Encrypt, dịch vụ systemd (cổng nội bộ 3100, đổi bằng PORT=...), sao lưu DB mỗi ngày. Tường lửa chỉ bật khi thêm SETUP_FIREWALL=1. Script dừng lại nếu cổng đã bị chương trình khác dùng.
+3. Mở https://gameslither.io/admin → đăng nhập admin / 12345678 → đổi mật khẩu.
+4. Cập nhật code sau này: `bash /opt/gameslither/deploy/update.sh`.
+
+File cấu hình: `deploy/nginx-gameslither.conf`, `deploy/gameslither.service`. Log: `journalctl -u gameslither -f`.
+
 ## Ngôn ngữ & SEO/GEO
 - 11 ngôn ngữ: English (mặc định, `/`), 中文 `/zh/`, हिन्दी `/hi/`, Español `/es/`, العربية `/ar/` (phải→trái), Français `/fr/`, বাংলা `/bn/`, Português `/pt/`, Русский `/ru/`, Bahasa Indonesia `/id/`, Tiếng Việt `/vi/`.
 - Trang chủ được **dựng từ 1 khung chung** (`pages.js`) + **1 file bản dịch mỗi ngôn ngữ** (`locales/<mã>.js`: seo, nội dung trang, chữ trong game `ui`, thông báo server `server`). `locales/en.js` là bản gốc; bản dịch nào thiếu khoá sẽ dùng tạm tiếng Anh và in cảnh báo khi khởi động.

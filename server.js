@@ -10,6 +10,7 @@ const { Room, send, TICK_RATE, SKIN_COUNT } = require('./room');
 
 // ---------------------------------------------------------------- config
 const PORT = process.env.PORT || 3000;
+const HOST = process.env.HOST || '0.0.0.0';           // trên VPS đặt 127.0.0.1 để chỉ Nginx truy cập được
 const PROD = process.env.NODE_ENV === 'production';
 const PAID_ENABLED = process.env.PAID_MODE === '1';    // chế độ chơi mất phí + ví: mặc định TẮT
 const DEMO = process.env.DEMO !== '0';                 // bật nút "Nạp thử" (tiền ảo)
@@ -377,7 +378,7 @@ setInterval(() => {
 
 const recovered = db.recoverOnStartup();
 if (recovered) console.log(`Đã hoàn ${recovered} vé của các trận bị gián đoạn lần trước.`);
-server.listen(PORT, () => {
+server.listen(PORT, HOST, () => {
   console.log(`GameSlither đang chạy tại http://localhost:${PORT}`);
   console.log(PAID_ENABLED
     ? `Phòng mất phí: BẬT · ${PAID_ROOM_SIZE} người · phí ${FEE_PERCENT}% · ${DEMO ? 'CHẾ ĐỘ THỬ (tiền ảo)' : 'TIỀN THẬT'}`

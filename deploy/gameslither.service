@@ -1,0 +1,26 @@
+# Dịch vụ systemd: tự chạy GameSlither khi VPS khởi động và tự bật lại nếu bị lỗi.
+# setup.sh thay __PORT__ và __NODE__ khi cài.
+[Unit]
+Description=GameSlither game server
+After=network.target
+
+[Service]
+Type=simple
+User=gameslither
+WorkingDirectory=/opt/gameslither
+Environment=NODE_ENV=production
+Environment=PORT=__PORT__
+Environment=HOST=127.0.0.1
+ExecStart=__NODE__ --no-warnings --env-file-if-exists=/opt/gameslither/.env server.js
+Restart=always
+RestartSec=3
+
+# Giới hạn quyền của tiến trình
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/gameslither
+
+[Install]
+WantedBy=multi-user.target
