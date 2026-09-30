@@ -21,6 +21,7 @@ Biến môi trường:
 |---|---|---|
 | `PORT` | 3000 | cổng server |
 | `PAID_MODE` | tắt | `1` để bật chế độ chơi mất phí + ví. Khi tắt, server gỡ hẳn các phần liên quan khỏi trang và từ chối mọi yêu cầu nạp/rút/vào phòng mất phí |
+| `FOOD_MULT` | 2 | hệ số lượng mồi (1 = 2.200 viên mỗi phòng miễn phí, 2 = 4.400; tối đa 5) |
 | `PAID_ROOM_SIZE` | 15 | số người mỗi phòng mất phí (đặt 2 để tự thử) |
 | `DEMO` | 1 | `0` để tắt nút nạp tiền ảo |
 | `DB_PATH` | `data.sqlite` | file cơ sở dữ liệu |
@@ -53,13 +54,29 @@ File cấu hình: `deploy/nginx-gameslither.conf`, `deploy/gameslither.service`.
 Đăng nhập bằng **admin / 12345678**. Lần đầu sẽ bị buộc đổi mật khẩu; mật khẩu mới lưu dạng băm scrypt trong bảng `settings` (khoá `admin.pass`). Đổi mật khẩu sau này ở tab **Tài khoản**. Quên mật khẩu: xoá dòng `admin.pass` trong bảng `settings` → quay về 12345678. Trong trang quản trị:
 - **Thống kê**: lượt truy cập, khách không trùng, lượt chơi, số người đang online, biểu đồ theo ngày (7/30/90 ngày), quốc gia, thiết bị, nguồn truy cập. Không lưu IP khách.
 - **Cài đặt SEO**: tiêu đề, mô tả, từ khoá riêng cho từng ngôn ngữ trong 11 ngôn ngữ, mã xác minh Google Search Console — áp dụng ngay.
+- **Blog**: công cụ viết bài tự động + quản lý bài (xem mục Blog bên dưới).
 - Quốc gia lấy từ header của Cloudflare/Vercel/CloudFront; nếu không chạy sau CDN thì cài thêm `npm i geoip-lite` (~115MB).
 - Bảo mật: sai mật khẩu 5 lần → khoá 15 phút; cookie HttpOnly + SameSite=Strict; phiên hết hạn sau 12 giờ.
+
+## Blog (/blog/, /vi/blog/, …)
+- Mỗi bài thuộc **1 ngôn ngữ**: bài tiếng Việt ở `/vi/blog/<slug>`, tiếng Anh ở `/blog/<slug>`… Trang danh sách `/<ngôn ngữ>/blog/`, RSS `/<ngôn ngữ>/blog/rss.xml`.
+- Menu "Blog" và khối "Bài viết khác" trên trang chủ **chỉ hiện ở ngôn ngữ đã có bài**. Trang blog của ngôn ngữ chưa có bài mang `noindex` và không vào sitemap (tránh nội dung mỏng).
+- SEO mỗi bài: title/description riêng, canonical, Open Graph + Twitter card (ảnh bìa), JSON-LD `BlogPosting` + `BreadcrumbList` + `FAQPage`, mục lục, thời gian đọc, liên kết nội bộ về game và các bài khác, sitemap có ảnh (`image:image`), `llms.txt` liệt kê bài.
+- **Trang quản trị → tab Blog**:
+  1. Chọn ngôn ngữ (mặc định English → bài ở `/blog/<slug>`), (tuỳ chọn) nhập hướng chủ đề → **💡 Gợi ý chủ đề**: AI đề xuất ~10 chủ đề kèm từ khoá chính, loại tìm kiếm, góc viết (tránh trùng bài đã có).
+  2. Bấm 1 gợi ý hoặc tự nhập chủ đề/từ khoá, chọn độ dài, giọng văn, số ảnh, yêu cầu thêm → **✍️ Viết bài**. Mất khoảng 1–3 phút, chạy nền (có thể viết tối đa 3 bài cùng lúc).
+  3. Bài lưu dạng **bản nháp** (hoặc đăng ngay nếu tick ô). Mở bài để đọc lại, sửa Markdown, đổi slug/mô tả/ảnh bìa/FAQ, **Xem trước**, rồi đổi trạng thái sang **Đã đăng**.
+- Chữ do Claude viết (`ANTHROPIC_API_KEY`, model `BLOG_MODEL`, mặc định `claude-opus-5`). Chỉ dùng đúng key này — tính phí theo token vào tài khoản API (console.anthropic.com), không dùng gói Claude Pro/Max. Yêu cầu gửi kèm `fallbacks: "default"`: nếu model chính từ chối, API tự chạy lại bằng model dự phòng.
+- Ảnh: có `OPENAI_API_KEY` → AI vẽ ảnh minh hoạ; có `PEXELS_API_KEY` → ảnh kho Pexels (tự ghi nguồn); không có → chỉ tạo ảnh bìa SVG tự vẽ (Facebook/Zalo không hiển thị SVG khi chia sẻ — nên dùng 1 trong 2 key trên hoặc tự tải ảnh bìa lên).
+- Ảnh lưu trong thư mục `media/` (không đưa lên git). Trên VPS được sao lưu mỗi Chủ nhật vào `/var/backups/gameslither/media-*.tgz`.
+- Nên đọc lại bài trước khi đăng: AI có thể viết sai chi tiết. Không nên đăng hàng loạt bài tự động không qua kiểm duyệt — Google đánh giá thấp nội dung hàng loạt kém chất lượng.
 
 ## Cấu trúc
 - `server.js` — sảnh, phòng miễn phí, hàng chờ + trận mất phí, trả thưởng, nạp/rút.
 - `room.js` — mô phỏng một phòng: rắn, mồi, va chạm, bot, vòng bo. Gửi trạng thái 30 lần/giây.
-- `panel.js` — trang quản trị: đăng nhập, API thống kê/cài đặt, ghi lượt truy cập, điền thẻ SEO. Giao diện ở thư mục `admin/`.
+- `panel.js` — trang quản trị: đăng nhập, API thống kê/cài đặt/blog, ghi lượt truy cập, điền thẻ SEO. Giao diện ở thư mục `admin/`.
+- `blog.js` — trang blog (danh sách, bài viết, RSS), chuyển Markdown → HTML an toàn, ảnh `/media/`, phần blog trong sitemap.
+- `writer.js` — công cụ viết bài: gợi ý chủ đề + viết bài bằng Claude API, tạo ảnh (OpenAI / Pexels / SVG), chạy nền.
 - `db.js` — sổ cái tiền (SQLite). Mọi thay đổi số dư đều ghi vào bảng `ledger`; tiền vé được "giữ" trong
   bảng `entries` và **tự hoàn lại khi server khởi động lại** nếu trận bị gián đoạn. Phí nhà cái cộng vào tài khoản id 0.
 - `public/skins.js` — 6 mẫu rắn: Cổ điển (một màu, người chơi chọn màu) + Neon Cyber, Rồng Vàng, Kẹo Cầu Vồng, Trăn Rừng, Thiên Hà. Thứ tự phải khớp `SKIN_HUES` trong `room.js`.

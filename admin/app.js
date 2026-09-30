@@ -60,7 +60,7 @@
   // ---------------------------------------------------------------- tab
   function setTab(name) {
     for (const x of document.querySelectorAll('.tabs button')) x.classList.toggle('on', x.dataset.tab === name);
-    for (const t of ['stats', 'seo', 'account']) show('tab-' + t, t === name);
+    for (const t of ['stats', 'seo', 'blog', 'account']) show('tab-' + t, t === name);
     if (name === 'stats') renderChart();
   }
   for (const b of document.querySelectorAll('.tabs button')) b.onclick = () => { if (!b.disabled) setTab(b.dataset.tab); };
@@ -104,6 +104,7 @@
     show('appView');
     loadStats();
     loadSeo();
+    loadBlog();
     setInterval(loadStats, 30_000); // cập nhật số người online
   }
 
@@ -336,6 +337,285 @@
       toast('Đã lưu SEO cho trang ' + ((seoLangs.find(l => l.code === seoLang) || {}).name || seoLang) + '.');
     } catch (err) { toast(err.message, true); }
   };
+
+  // ---------------------------------------------------------------- blog
+  const el = (tag, props = {}, ...kids) => {
+    const e = document.createElement(tag);
+    for (const k in props) { if (k === 'class') e.className = props[k]; else if (k in e) e[k] = props[k]; else e.setAttribute(k, props[k]); }
+    e.append(...kids);
+    return e;
+  };
+  const fmtDate = ts => ts ? new Date(ts).toLocaleString('vi-VN', { dateStyle: 'short', timeStyle: 'short' }) : '–';
+  let blogLangs = [], posts = [], editing = null;
+  const langName = code => (blogLangs.find(l => l.code === code) || {}).name || code;
+  const langPath = code => (blogLangs.find(l => l.code === code) || {}).path || '/';
+  const onErr = err => { if (err.status === 401) location.reload(); else toast(err.message, true); };
+
+  async function loadBlog() {
+    try {
+      const r = await api('GET', '/admin/api/blog');
+      posts = r.posts;
+      if (!blogLangs.length) {
+        blogLangs = r.langs;
+        for (const sel of [$('gLang'), $('eLang')]) for (const l of blogLangs) sel.appendChild(el('option', { value: l.code, textContent: l.name }));
+        $('gLang').value = 'en';   // ngôn ngữ viết bài mặc định
+        $('gLang').onchange = () => { $('blogView').href = `${langPath($('gLang').value)}blog/`; };
+        $('gLang').onchange();
+      }
+      renderCaps(r.caps);
+      renderPosts();
+    } catch (err) { onErr(err); }
+  }
+
+  function renderCaps(c) {
+    const IMG = { openai: 'Ảnh: AI vẽ (OpenAI)', pexels: 'Ảnh: kho ảnh Pexels', svg: 'Ảnh: ảnh bìa tự vẽ (thêm OPENAI_API_KEY hoặc PEXELS_API_KEY để có ảnh đẹp hơn)' };
+    $('caps').textContent = c.text ? `Chữ: ${c.model} · ${IMG[c.image]}` : IMG[c.image];
+    show('noKey', !c.text);
+    $('genBtn').disabled = $('suggest').disabled = !c.text;
+    // Chưa có key ảnh: chỉ tạo được 1 ảnh bìa tự vẽ, không có ảnh trong bài
+    const noImg = c.image === 'svg';
+    if (noImg) $('gImages').value = '1';
+    $('gImages').disabled = noImg;
+    $('gImages').title = noImg ? 'Cần OPENAI_API_KEY hoặc PEXELS_API_KEY để có ảnh trong bài' : '';
+    show('imgHint', noImg);
+  }
+
+  function renderPosts() {
+    const t = $('postTable');
+    t.textContent = '';
+    $('postCount').textContent = `${posts.length} bài · ${posts.filter(p => p.status === 'published').length} đã đăng`;
+    if (!posts.length) { t.appendChild(el('tbody', {}, el('tr', {}, el('td', { class: 'empty' }, 'Chưa có bài nào. Hãy viết bài đầu tiên ở trên.')))); return; }
+    const head = t.createTHead().insertRow();
+    for (const h of ['', 'Tiêu đề', 'Ngôn ngữ', 'Trạng thái', 'Ngày', '']) head.appendChild(el('th', { textContent: h }));
+    const body = t.createTBody();
+    for (const p of posts) {
+      const tr = body.insertRow();
+      tr.insertCell().appendChild(p.cover ? el('img', { src: p.cover, alt: '', class: 'thumb', loading: 'lazy' }) : el('span', { class: 'thumb' }));
+      const a = el('a', { href: '#', textContent: p.title, class: 'post-title' });
+      a.onclick = e => { e.preventDefault(); openEditor(p.id); };
+      tr.insertCell().append(a, el('div', { class: 'hint', textContent: `${langPath(p.lang)}blog/${p.slug}` }));
+      tr.insertCell().textContent = langName(p.lang);
+      tr.insertCell().appendChild(el('span', { class: 'badge-st ' + p.status, textContent: p.status === 'published' ? 'Đã đăng' : 'Nháp' }));
+      tr.insertCell().textContent = fmtDate(p.published_at || p.updated_at);
+      const act = tr.insertCell();
+      act.className = 'actions';
+      const view = el('a', { href: p.status === 'published' ? `${langPath(p.lang)}blog/${p.slug}` : `/admin/preview/${p.id}`, target: '_blank', rel: 'noopener', textContent: 'Xem' });
+      const edit = el('button', { type: 'button', class: 'ghost sm', textContent: 'Sửa' });
+      edit.onclick = () => openEditor(p.id);
+      act.append(view, edit);
+    }
+  }
+
+  // --- gợi ý chủ đề
+  $('suggest').onclick = async () => {
+    const b = $('suggest');
+    b.disabled = true; b.textContent = '⏳ Đang nghĩ chủ đề…';
+    try {
+      const r = await api('POST', '/admin/api/blog/topics', { lang: $('gLang').value, seed: $('gSeed').value });
+      const box = $('topics');
+      box.textContent = '';
+      for (const tp of r.topics) {
+        const chip = el('button', { type: 'button', class: 'topic', role: 'listitem' },
+          el('b', { textContent: tp.title }), el('span', { textContent: `🔑 ${tp.keyword} · ${tp.intent}` }), el('small', { textContent: tp.angle }));
+        chip.onclick = () => {
+          $('gTopic').value = tp.title; $('gKeyword').value = tp.keyword;
+          for (const c of box.children) c.classList.toggle('on', c === chip);
+        };
+        box.appendChild(chip);
+      }
+      show('topics', r.topics.length > 0);
+    } catch (err) { onErr(err); }
+    b.disabled = false; b.textContent = '💡 Gợi ý chủ đề';
+  };
+
+  // --- viết bài (chạy nền, hỏi tiến độ 3 giây/lần)
+  $('genForm').onsubmit = async e => {
+    e.preventDefault();
+    try {
+      const r = await api('POST', '/admin/api/blog/generate', {
+        lang: $('gLang').value, topic: $('gTopic').value, keyword: $('gKeyword').value, length: $('gLength').value,
+        tone: $('gTone').value, images: $('gImages').value, notes: $('gNotes').value, publish: $('gPublish').checked,
+      });
+      trackJob(r.job);
+      $('gTopic').value = ''; $('gKeyword').value = '';
+      for (const c of $('topics').children) c.classList.remove('on');
+    } catch (err) { onErr(err); }
+  };
+  function trackJob(job) {
+    const row = el('div', { class: 'job' });
+    $('jobs').prepend(row);
+    const draw = j => {
+      row.textContent = '';
+      const secs = Math.round((Date.now() - j.startedAt) / 1000);
+      row.className = 'job ' + j.status;
+      row.append(el('span', { class: 'job-ico', textContent: j.status === 'running' ? '⏳' : j.status === 'done' ? '✅' : '⚠️' }),
+        el('span', { class: 'job-topic', textContent: j.topic }),
+        el('span', { class: 'job-step', textContent: j.status === 'error' ? j.error : `${j.step} (${secs}s)` }));
+      if (j.status === 'done') {
+        const b = el('button', { type: 'button', class: 'ghost sm', textContent: 'Mở bài' });
+        b.onclick = () => openEditor(j.postId);
+        row.appendChild(b);
+      }
+    };
+    draw(job);
+    const timer = setInterval(async () => {
+      try {
+        const r = await api('GET', `/admin/api/blog/job/${job.id}`);
+        draw(r.job);
+        if (r.job.status !== 'running') {
+          clearInterval(timer);
+          if (r.job.status === 'done') { toast('Đã viết xong: ' + r.job.topic); loadBlog(); }
+        }
+      } catch (err) { clearInterval(timer); onErr(err); }
+    }, 3000);
+  }
+
+  // --- trình soạn thảo
+  $('newPost').onclick = () => openEditor(0);
+  $('edBack').onclick = () => closeEditor();
+  function closeEditor() { editing = null; show('editor', false); show('blogList'); loadBlog(); }
+
+  async function openEditor(id) {
+    let p = { id: 0, lang: $('gLang').value || 'en', title: '', slug: '', description: '', keywords: '', excerpt: '', content: '', faq: [], cover: '', cover_alt: '', credit: '', status: 'draft', topic: '' };
+    if (id) { try { p = (await api('GET', `/admin/api/blog/post/${id}`)).post; } catch (err) { return onErr(err); } }
+    editing = p;
+    setTab('blog');
+    show('blogList', false); show('editor');
+    $('edHeading').textContent = id ? 'Sửa bài' : 'Bài mới';
+    $('eTitle').value = p.title; $('eSlug').value = p.slug; $('eDesc').value = p.description; $('eKeys').value = p.keywords;
+    $('eExcerpt').value = p.excerpt; $('eContent').value = p.content; $('eStatus').value = p.status; $('eLang').value = p.lang;
+    $('eCoverAlt').value = p.cover_alt; $('eCredit').value = p.credit;
+    $('eDates').textContent = id ? `Tạo: ${fmtDate(p.created_at)} · Sửa: ${fmtDate(p.updated_at)}${p.published_at ? ' · Đăng: ' + fmtDate(p.published_at) : ''}` : '';
+    show('edDelete', !!id);
+    setCover(p.cover);
+    $('faqList').textContent = '';
+    for (const f of p.faq) addFaq(f[0], f[1]);
+    updateEdPreview();
+    window.scrollTo(0, 0);
+  }
+
+  function setCover(src) {
+    editing.cover = src || '';
+    $('eCoverImg').src = src || '';
+    show('eCoverImg', !!src); show('coverEmpty', !src);
+  }
+
+  function addFaq(q = '', a = '') {
+    const row = el('div', { class: 'faq-row' },
+      el('input', { placeholder: 'Câu hỏi', value: q, maxLength: 300, class: 'fq' }),
+      el('textarea', { placeholder: 'Trả lời', value: a, rows: 2, maxLength: 1200, class: 'fa' }));
+    const del = el('button', { type: 'button', class: 'ghost sm', textContent: '✕', title: 'Xoá câu hỏi' });
+    del.onclick = () => row.remove();
+    row.appendChild(del);
+    $('faqList').appendChild(row);
+  }
+  $('faqAdd').onclick = () => addFaq();
+
+  function updateEdPreview() {
+    const t = $('eTitle').value.trim(), d = $('eDesc').value.trim();
+    counter($('ceTitle'), t.length, 30, 60);
+    counter($('ceDesc'), d.length, 120, 160);
+    const prefix = `${langPath($('eLang').value)}blog/`;
+    $('eSlugPrefix').textContent = prefix;
+    $('eUrl').textContent = location.host + ' › ' + (prefix + $('eSlug').value).replace(/^\/|\/$/g, '').replace(/\//g, ' › ');
+    const full = `${t} | GameSlither`;
+    $('eSerpTitle').textContent = full.length > 60 ? full.slice(0, 58) + '…' : full;
+    $('eSerpDesc').textContent = d.length > 160 ? d.slice(0, 157) + '…' : d;
+  }
+  for (const id of ['eTitle', 'eDesc', 'eSlug', 'eLang']) $(id).addEventListener('input', updateEdPreview);
+  // Bài mới: slug tự sinh theo tiêu đề cho tới khi người dùng tự sửa slug
+  let slugTouched = false;
+  $('eSlug').addEventListener('input', () => { slugTouched = true; });
+  $('eTitle').addEventListener('input', () => {
+    if (editing && !editing.id && !slugTouched) {
+      $('eSlug').value = $('eTitle').value.toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd')
+        .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80);
+      updateEdPreview();
+    }
+  });
+
+  function collect() {
+    return {
+      lang: $('eLang').value, title: $('eTitle').value, slug: $('eSlug').value, description: $('eDesc').value, keywords: $('eKeys').value,
+      excerpt: $('eExcerpt').value, content: $('eContent').value, status: $('eStatus').value, cover: editing.cover,
+      cover_alt: $('eCoverAlt').value, credit: $('eCredit').value, topic: editing.topic,
+      faq: [...document.querySelectorAll('.faq-row')].map(r => [r.querySelector('.fq').value, r.querySelector('.fa').value]),
+    };
+  }
+  $('editor').onsubmit = async e => {
+    e.preventDefault();
+    try {
+      const r = editing.id ? await api('PUT', `/admin/api/blog/post/${editing.id}`, collect()) : await api('POST', '/admin/api/blog/post', collect());
+      const wasNew = !editing.id;
+      editing = r.post;
+      slugTouched = false;
+      $('eSlug').value = r.post.slug;
+      $('edHeading').textContent = 'Sửa bài';
+      show('edDelete');
+      $('eDates').textContent = `Tạo: ${fmtDate(r.post.created_at)} · Sửa: ${fmtDate(r.post.updated_at)}${r.post.published_at ? ' · Đăng: ' + fmtDate(r.post.published_at) : ''}`;
+      updateEdPreview();
+      toast(r.post.status === 'published' ? 'Đã lưu và đăng bài.' : wasNew ? 'Đã tạo bản nháp.' : 'Đã lưu bản nháp.');
+    } catch (err) { onErr(err); }
+  };
+  $('edPreview').onclick = () => {
+    if (!editing.id) return toast('Lưu bài trước rồi mới xem trước được.', true);
+    window.open(`/admin/preview/${editing.id}`, '_blank', 'noopener');
+  };
+  $('edDelete').onclick = async () => {
+    if (!editing.id || !confirm(`Xoá hẳn bài "${editing.title}"? Không khôi phục được.`)) return;
+    try { await api('DELETE', `/admin/api/blog/post/${editing.id}`); toast('Đã xoá bài.'); closeEditor(); } catch (err) { onErr(err); }
+  };
+
+  // --- ảnh: tải lên / tạo bằng AI
+  function pickFile() {
+    return new Promise(resolve => {
+      const inp = $('fileInput');
+      inp.value = '';
+      inp.onchange = () => resolve(inp.files[0] || null);
+      inp.click();
+    });
+  }
+  async function uploadImage() {
+    const f = await pickFile();
+    if (!f) return null;
+    if (f.size > 6 * 1024 * 1024) { toast('Ảnh tối đa 6 MB.', true); return null; }
+    const data = await new Promise((ok, bad) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = bad; r.readAsDataURL(f); });
+    toast('Đang tải ảnh lên…');
+    try { return (await api('POST', '/admin/api/blog/image', { data, name: $('eSlug').value || f.name })).src; } catch (err) { onErr(err); return null; }
+  }
+  async function aiImage(cover) {
+    const prompt = window.prompt('Mô tả ảnh cần tạo (nên viết tiếng Anh cho AI vẽ, hoặc từ khoá tìm ảnh kho):',
+      cover ? `Blog cover illustration: ${$('eTitle').value}` : '');
+    if (!prompt) return null;
+    toast('Đang tạo ảnh… (có thể mất tới 1 phút)');
+    try {
+      const r = await api('POST', '/admin/api/blog/image/ai', { prompt, slug: $('eSlug').value, title: $('eTitle').value, cover });
+      if (r.credit) $('eCredit').value = [$('eCredit').value, r.credit].filter(Boolean).join(', ');
+      return r.src;
+    } catch (err) { onErr(err); return null; }
+  }
+  function insertAtCursor(text) {
+    const ta = $('eContent'), s = ta.selectionStart, e = ta.selectionEnd;
+    ta.setRangeText(text, s, e, 'end');
+    ta.focus();
+  }
+  $('coverUpload').onclick = async () => { const src = await uploadImage(); if (src) setCover(src); };
+  $('coverAi').onclick = async () => { const src = await aiImage(true); if (src) setCover(src); };
+  $('coverRemove').onclick = () => setCover('');
+  $('mdUpload').onclick = async () => { const src = await uploadImage(); if (src) insertAtCursor(`\n\n![${prompt('Mô tả ảnh (alt):') || ''}](${src})\n\n`); };
+  $('mdAiImg').onclick = async () => { const src = await aiImage(false); if (src) insertAtCursor(`\n\n![${prompt('Mô tả ảnh (alt) bằng ngôn ngữ của bài:') || ''}](${src})\n\n`); };
+  for (const b of document.querySelectorAll('[data-md]')) {
+    b.onclick = () => {
+      const ta = $('eContent'), m = b.dataset.md, sel = ta.value.slice(ta.selectionStart, ta.selectionEnd);
+      if (m === '**') insertAtCursor(`**${sel || 'chữ đậm'}**`);
+      else if (m === 'link') insertAtCursor(`[${sel || 'chữ liên kết'}](${prompt('Địa chỉ liên kết (VD: /vi/ hoặc https://…):', langPath($('eLang').value)) || '#'})`);
+      else {
+        const start = ta.value.lastIndexOf('\n', ta.selectionStart - 1) + 1;
+        ta.setSelectionRange(start, start);
+        insertAtCursor(m);
+      }
+    };
+  }
 
   boot();
 })();

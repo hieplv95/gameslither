@@ -119,6 +119,7 @@ echo "==> Sao lưu cơ sở dữ liệu mỗi ngày lúc 3h sáng (giữ 14 bả
 mkdir -p /var/backups/gameslither
 cat > /etc/cron.d/gameslither-backup <<EOF
 0 3 * * * root sqlite3 $APP_DIR/data.sqlite ".backup /var/backups/gameslither/data-\$(date +\%F).sqlite" && find /var/backups/gameslither -name 'data-*.sqlite' -mtime +14 -delete
+15 3 * * 0 root [ -d $APP_DIR/media ] && tar -czf /var/backups/gameslither/media-\$(date +\%F).tgz -C $APP_DIR media && find /var/backups/gameslither -name 'media-*.tgz' -mtime +30 -delete
 EOF
 
 sleep 1

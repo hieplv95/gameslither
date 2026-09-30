@@ -1,7 +1,7 @@
 'use strict';
 // Dựng trang chủ cho từng ngôn ngữ từ 1 khung chung + file bản dịch trong locales/.
-// Kết quả còn các chỗ trống {{SITE_URL}}, {{SEO_*}}, {{GSC_META}} và khối <!--PAID-->…<!--/PAID-->,
-// server.js điền/gỡ khi trả trang.
+// Kết quả còn các chỗ trống {{SITE_URL}}, {{SEO_*}}, {{GSC_META}}, {{LATEST_POSTS}} và khối <!--PAID-->…<!--/PAID-->,
+// <!--BLOG-->…<!--/BLOG-->, server.js điền/gỡ khi trả trang.
 const LOCALES = require('./locales');
 
 const SITE_UPDATED = '2026-09-30';
@@ -92,6 +92,7 @@ function render(L) {
         <a href="#vs-slither-io">${t.nav[2]}</a>
         <a href="#snake-skins">${t.nav[3]}</a>
         <a href="#faq">${t.nav[4]}</a>
+        <!--BLOG--><a href="${L.path}blog/">${esc(L.blog.nav)}</a><!--/BLOG-->
         <details class="lang-menu">
           <summary aria-label="${esc(t.langMenu)}">🌐 ${esc(L.name)}</summary>
           <div class="lang-list">
@@ -293,6 +294,8 @@ function render(L) {
         </ul>
       </section>
 
+      {{LATEST_POSTS}}
+
       <section id="faq">
         <h2>${t.faqTitle}</h2>
         ${t.faq.map(([q, a]) => `<details><summary>${q}</summary><p>${a}</p></details>`).join('\n        ')}
@@ -317,6 +320,7 @@ function render(L) {
         <a href="#how-to-play">${t.nav[1]}</a>
         <a href="#vs-slither-io">GameSlither vs Slither.io</a>
         <a href="#faq">${t.nav[4]}</a>
+        <!--BLOG--><a href="${L.path}blog/">${esc(L.blog.nav)}</a><!--/BLOG-->
       </nav>
       ${paid(`<div class="footer-note">
         <div class="footer-title">${t.respTitle}</div>

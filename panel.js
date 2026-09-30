@@ -4,6 +4,8 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const db = require('./db');
+const blog = require('./blog');
+const writer = require('./writer');
 
 const ADMIN_DIR = path.join(__dirname, 'admin');
 const ADMIN_USER = process.env.ADMIN_USER || 'admin';
@@ -157,6 +159,7 @@ function handle(req, res, p, getLive) {
     });
     return true;
   }
+  if (req.method === 'GET' && p.startsWith('/admin/preview/')) { preview(req, res, p); return true; }
   if (!p.startsWith('/admin/api/')) { res.writeHead(404); res.end(); return true; }
 
   // Chống CSRF: mọi request ghi phải có header tuỳ chỉnh (trình duyệt không tự gửi từ trang khác).
@@ -248,8 +251,130 @@ function handle(req, res, p, getLive) {
     return true;
   }
 
+  if (p.startsWith('/admin/api/blog')) { handleBlog(req, res, route); return true; }
+
   json(res, 404, { error: 'Không tìm thấy' });
   return true;
+}
+
+// ---------------------------------------------------------------- blog
+const BLOG_LIMITS = { title: 120, description: 320, keywords: 400, excerpt: 300, content: 100_000, cover_alt: 160, credit: 500, topic: 300 };
+const oneLine = s => String(s ?? '').replace(/[\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim();
+const MAX_UPLOAD = 6 * 1024 * 1024;
+const IMG_MAGIC = { png: [0x89, 0x50, 0x4e, 0x47], jpg: [0xff, 0xd8, 0xff], webp: [0x52, 0x49, 0x46, 0x46] };
+
+// Kiểm tra + chuẩn hoá bài gửi lên từ trình soạn thảo. Trả về { post } hoặc { error }.
+function validatePost(b, id = 0) {
+  const post = {};
+  if (!LANGS.includes(b.lang)) return { error: 'Ngôn ngữ không hợp lệ.' };
+  post.lang = b.lang;
+  for (const k of ['title', 'description', 'keywords', 'excerpt', 'cover_alt', 'credit', 'topic']) {
+    post[k] = oneLine(b[k]);
+    if (post[k].length > BLOG_LIMITS[k]) return { error: `"${k}" dài quá ${BLOG_LIMITS[k]} ký tự.` };
+  }
+  if (!post.title) return { error: 'Tiêu đề không được để trống.' };
+  post.content = String(b.content ?? '').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '');
+  if (post.content.length > BLOG_LIMITS.content) return { error: 'Nội dung quá dài.' };
+  post.slug = writer.toSlug(b.slug || post.title);
+  if (!blog.SLUG_RE.test(post.slug)) return { error: 'Đường dẫn (slug) chỉ gồm chữ thường không dấu, số và dấu gạch ngang.' };
+  if (db.slugTaken(post.lang, post.slug, id)) return { error: 'Đường dẫn này đã có bài khác dùng.' };
+  post.cover = String(b.cover || '');
+  if (post.cover && !(post.cover.startsWith('/media/') && blog.MEDIA_RE.test(post.cover.slice(7)))) return { error: 'Ảnh bìa không hợp lệ.' };
+  post.faq = (Array.isArray(b.faq) ? b.faq : []).filter(f => Array.isArray(f)).map(f => [oneLine(f[0]).slice(0, 300), oneLine(f[1]).slice(0, 1200)])
+    .filter(f => f[0] && f[1]).slice(0, 12);
+  post.status = b.status === 'published' ? 'published' : 'draft';
+  if (post.status === 'published' && !post.description) return { error: 'Cần có mô tả (meta description) trước khi đăng.' };
+  return { post };
+}
+
+function decodeUpload(dataUrl) {
+  const m = /^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/=]+)$/.exec(String(dataUrl || ''));
+  if (!m) return null;
+  const ext = m[1] === 'jpeg' ? 'jpg' : m[1];
+  const buf = Buffer.from(m[2], 'base64');
+  if (buf.length > MAX_UPLOAD || !IMG_MAGIC[ext].every((v, i) => buf[i] === v)) return null;
+  return { buf, ext };
+}
+
+function handleBlog(req, res, route) {
+  const fail = e => json(res, 400, { error: e.message || 'Dữ liệu không hợp lệ' });
+  const idOf = pre => { const m = route.slice(pre.length).match(/^(\d+)$/); return m ? Number(m[1]) : 0; };
+
+  if (route === 'GET /admin/api/blog') {
+    return json(res, 200, { posts: db.listPosts(), caps: writer.capabilities(), langs: LANG_LIST });
+  }
+  if (route.startsWith('GET /admin/api/blog/post/')) {
+    const post = db.getPost(idOf('GET /admin/api/blog/post/'));
+    return post ? json(res, 200, { post }) : json(res, 404, { error: 'Không tìm thấy bài' });
+  }
+  if (route === 'POST /admin/api/blog/post' || route.startsWith('PUT /admin/api/blog/post/')) {
+    const id = req.method === 'PUT' ? idOf('PUT /admin/api/blog/post/') : 0;
+    if (req.method === 'PUT' && !db.getPost(id)) return json(res, 404, { error: 'Không tìm thấy bài' });
+    return readJson(req, 256 * 1024).then(b => {
+      const { post, error } = validatePost(b || {}, id);
+      if (error) return json(res, 400, { error });
+      const saved = db.savePost(post, id);
+      json(res, 200, { ok: true, post: db.getPost(saved) });
+    }).catch(fail);
+  }
+  if (route.startsWith('DELETE /admin/api/blog/post/')) {
+    db.deletePost(idOf('DELETE /admin/api/blog/post/'));
+    return json(res, 200, { ok: true });
+  }
+  if (route === 'POST /admin/api/blog/topics') {
+    return readJson(req).then(b => writer.suggestTopics({ lang: b.lang, seed: oneLine(b.seed).slice(0, 300), count: 10 }))
+      .then(topics => json(res, 200, { topics })).catch(fail);
+  }
+  if (route === 'POST /admin/api/blog/generate') {
+    return readJson(req).then(b => {
+      const topic = oneLine(b.topic).slice(0, 300);
+      if (!topic) throw new Error('Hãy nhập hoặc chọn một chủ đề.');
+      if (!LANGS.includes(b.lang)) throw new Error('Ngôn ngữ không hợp lệ.');
+      const job = writer.startJob({
+        lang: b.lang, topic, keyword: oneLine(b.keyword).slice(0, 120), notes: String(b.notes || '').slice(0, 2000),
+        length: ['short', 'medium', 'long'].includes(b.length) ? b.length : 'medium',
+        tone: ['friendly', 'expert', 'news', 'beginner'].includes(b.tone) ? b.tone : 'friendly',
+        images: Math.max(1, Math.min(4, Number(b.images) || 2)), publish: !!b.publish,
+      });
+      json(res, 200, { job });
+    }).catch(fail);
+  }
+  if (route.startsWith('GET /admin/api/blog/job/')) {
+    const job = writer.getJob(route.slice('GET /admin/api/blog/job/'.length));
+    return job ? json(res, 200, { job }) : json(res, 404, { error: 'Không tìm thấy tác vụ' });
+  }
+  // Tải ảnh lên (dạng data URL base64) → /media/…
+  if (route === 'POST /admin/api/blog/image') {
+    return readJson(req, MAX_UPLOAD * 1.4 + 1024).then(b => {
+      const up = decodeUpload(b.data);
+      if (!up) return json(res, 400, { error: 'Chỉ nhận ảnh PNG, JPG hoặc WebP, tối đa 6 MB.' });
+      json(res, 200, { src: blog.saveMedia(up.buf, up.ext, writer.toSlug(b.name || 'anh')) });
+    }).catch(() => json(res, 400, { error: 'Ảnh quá lớn hoặc không hợp lệ.' }));
+  }
+  // Tạo ảnh bằng AI / ảnh kho theo mô tả
+  if (route === 'POST /admin/api/blog/image/ai') {
+    return readJson(req).then(async b => {
+      const prompt = String(b.prompt || '').slice(0, 1500).trim();
+      if (!prompt) throw new Error('Hãy nhập mô tả ảnh.');
+      if (!b.cover && writer.capabilities().image === 'svg') throw new Error('Cần OPENAI_API_KEY hoặc PEXELS_API_KEY trong .env để tạo ảnh chèn vào bài.');
+      const slug = writer.toSlug(b.slug || 'anh') || 'anh';
+      const img = await writer.makeImage({ prompt, query: prompt.split(/\s+/).slice(0, 4).join(' ') },
+        { slug, title: oneLine(b.title) || prompt, cover: !!b.cover });
+      if (!img) throw new Error('Không tạo được ảnh (xem log server).');
+      json(res, 200, img);
+    }).catch(fail);
+  }
+  json(res, 404, { error: 'Không tìm thấy' });
+}
+
+// Xem trước bài (kể cả bản nháp) — chỉ admin đã đăng nhập, không cho Google lập chỉ mục.
+function preview(req, res, p) {
+  if (!isAuthed(req) || mustChange()) { res.writeHead(302, { Location: '/admin' }); res.end(); return; }
+  const post = db.getPost(Number(p.slice('/admin/preview/'.length)) || 0);
+  if (!post) { res.writeHead(404); res.end('Không tìm thấy bài'); return; }
+  const html = blog.renderPost(blog.BY_CODE.get(post.lang) || LOCALES[0], post, { preview: true }).replaceAll('{{SITE_URL}}', '');
+  res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'X-Robots-Tag': 'noindex, nofollow', 'Cache-Control': 'no-store' });
+  res.end(html);
 }
 
 module.exports = { handle, applySeo, trackVisit, countryOf };

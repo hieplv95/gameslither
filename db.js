@@ -75,6 +75,29 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS plays_day ON plays (day);
   CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+
+  -- blog: mỗi bài thuộc 1 ngôn ngữ, đường dẫn /<ngôn ngữ>/blog/<slug>
+  CREATE TABLE IF NOT EXISTS posts (
+    id INTEGER PRIMARY KEY,
+    lang TEXT NOT NULL,
+    slug TEXT NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',   -- meta description
+    keywords TEXT NOT NULL DEFAULT '',
+    excerpt TEXT NOT NULL DEFAULT '',
+    content TEXT NOT NULL DEFAULT '',       -- Markdown
+    faq TEXT NOT NULL DEFAULT '[]',         -- JSON [[hỏi, đáp], …]
+    cover TEXT NOT NULL DEFAULT '',         -- /media/…
+    cover_alt TEXT NOT NULL DEFAULT '',
+    credit TEXT NOT NULL DEFAULT '',        -- ghi nguồn ảnh (nếu là ảnh kho)
+    topic TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'draft',   -- draft | published
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL,
+    published_at INTEGER,
+    UNIQUE (lang, slug)
+  );
+  CREATE INDEX IF NOT EXISTS posts_pub ON posts (status, lang, published_at);
   INSERT OR IGNORE INTO accounts (id, token_hash, balance, created_at) VALUES (0, 'HOUSE', 0, 0);
 `);
 
@@ -115,6 +138,19 @@ const qa = {
   getSettings: db.prepare('SELECT key, value FROM settings'),
   setSetting: db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'),
 };
+
+const POST_FIELDS = ['lang', 'slug', 'title', 'description', 'keywords', 'excerpt', 'content', 'faq', 'cover', 'cover_alt', 'credit', 'topic', 'status'];
+const qp = {
+  all: db.prepare('SELECT id, lang, slug, title, cover, status, topic, created_at, updated_at, published_at FROM posts ORDER BY COALESCE(published_at, updated_at) DESC'),
+  byId: db.prepare('SELECT * FROM posts WHERE id = ?'),
+  bySlug: db.prepare("SELECT * FROM posts WHERE lang = ? AND slug = ? AND status = 'published'"),
+  slugTaken: db.prepare('SELECT id FROM posts WHERE lang = ? AND slug = ? AND id != ?'),
+  published: db.prepare("SELECT id, lang, slug, title, description, excerpt, cover, cover_alt, published_at, updated_at FROM posts WHERE status = 'published' AND lang = ? ORDER BY published_at DESC LIMIT ?"),
+  publishedAll: db.prepare("SELECT lang, slug, title, cover, published_at, updated_at FROM posts WHERE status = 'published' ORDER BY published_at DESC"),
+  del: db.prepare('DELETE FROM posts WHERE id = ?'),
+};
+const postRow = r => r && { ...r, id: Number(r.id), faq: (() => { try { return JSON.parse(r.faq); } catch { return []; } })(),
+  created_at: Number(r.created_at), updated_at: Number(r.updated_at), published_at: r.published_at == null ? null : Number(r.published_at) };
 
 function tx(fn) {
   db.exec('BEGIN IMMEDIATE');
@@ -246,6 +282,29 @@ module.exports = {
   setSettings(obj) {
     tx(() => { for (const [k, v] of Object.entries(obj)) qa.setSetting.run(k, String(v)); });
   },
+
+  // ---------------------------------------------------------------- blog
+  listPosts() { return qp.all.all().map(postRow); },
+  getPost(id) { return postRow(qp.byId.get(id)); },
+  publishedPost(lang, slug) { return postRow(qp.bySlug.get(lang, slug)); },
+  publishedPosts(lang, limit = 500) { return qp.published.all(lang, limit).map(postRow); },
+  allPublishedPosts() { return qp.publishedAll.all().map(postRow); },
+  slugTaken(lang, slug, exceptId = 0) { return !!qp.slugTaken.get(lang, slug, exceptId); },
+  // Lưu bài (tạo mới khi không có id). Lần đầu chuyển sang "published" thì ghi ngày đăng.
+  savePost(p, id) {
+    const now = Date.now();
+    const vals = POST_FIELDS.map(k => (k === 'faq' ? JSON.stringify(p.faq || []) : String(p[k] ?? '')));
+    if (!id) {
+      const r = db.prepare(`INSERT INTO posts (${POST_FIELDS.join(', ')}, created_at, updated_at, published_at) VALUES (${POST_FIELDS.map(() => '?').join(', ')}, ?, ?, ?)`)
+        .run(...vals, now, now, p.status === 'published' ? now : null);
+      return Number(r.lastInsertRowid);
+    }
+    db.prepare(`UPDATE posts SET ${POST_FIELDS.map(k => `${k} = ?`).join(', ')}, updated_at = ?,
+      published_at = CASE WHEN ? = 'published' THEN COALESCE(published_at, ?) ELSE published_at END WHERE id = ?`)
+      .run(...vals, now, p.status, now, id);
+    return id;
+  },
+  deletePost(id) { qp.del.run(id); },
 
   history(accountId, limit = 30) {
     return q.history.all(accountId, limit).map(r => [r.type, Number(r.amount), r.ref, Number(r.created_at)]);

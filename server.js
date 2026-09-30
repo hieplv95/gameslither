@@ -38,6 +38,7 @@ const LOCALE_BY_CODE = new Map(LOCALES.map(L => [L.code, L]));
 const REDIRECTS = { '/index.html': '/' };
 for (const L of LOCALES) if (L.path !== '/') { REDIRECTS[L.path.slice(0, -1)] = L.path; REDIRECTS[L.path + 'index.html'] = L.path; }
 const SEO_FILES = require('./seo-files')(SITE_URL);
+const blog = require('./blog');
 const server = http.createServer((req, res) => {
   let p;
   try { p = decodeURIComponent(req.url.split('?')[0]); } catch { res.writeHead(400); return res.end(); }
@@ -47,10 +48,18 @@ const server = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': MIME[path.extname(p)] });
     return res.end(SEO_FILES[p]());
   }
+  if (p.startsWith('/media/')) return blog.serveMedia(res, p);
+  const b = blog.route(p);
+  if (b) {
+    if (b.location) { res.writeHead(301, { Location: b.location }); return res.end(); }
+    res.writeHead(b.code, { 'Content-Type': b.type });
+    return res.end(b.body.replaceAll('{{SITE_URL}}', SITE_URL));
+  }
   const page = PAGES.get(p);
   if (page) {
     const headers = { 'Content-Type': MIME['.html'] };
-    let html = panel.applySeo(page.html.replaceAll('{{SITE_URL}}', SITE_URL), page.lang);
+    // menu "Blog" + khối bài mới nhất chỉ hiện khi ngôn ngữ này đã có bài
+    let html = panel.applySeo(blog.injectHome(page.html, page.lang).replaceAll('{{SITE_URL}}', SITE_URL), page.lang);
     // Tắt chế độ mất phí: gỡ hẳn các khối liên quan khỏi trang, không chỉ ẩn bằng CSS
     html = PAID_ENABLED
       ? html.replaceAll('<!--PAID-->', '').replaceAll('<!--/PAID-->', '')

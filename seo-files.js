@@ -1,6 +1,7 @@
 'use strict';
 // robots.txt, sitemap.xml (có hreflang cho mọi ngôn ngữ) và llms.txt (tóm tắt website cho AI).
 const { LOCALES, SITE_UPDATED } = require('./pages');
+const blog = require('./blog');
 
 // Bot AI (tìm kiếm & trả lời) được phép đọc trang — cần cho GEO
 const AI_BOTS = ['GPTBot', 'OAI-SearchBot', 'ChatGPT-User', 'PerplexityBot', 'Perplexity-User', 'ClaudeBot', 'Claude-SearchBot',
@@ -18,7 +19,8 @@ module.exports = function seoFiles(SITE_URL) {
       const urls = LOCALES.map(L => `  <url>\n    <loc>${SITE_URL}${L.path}</loc>\n    <lastmod>${SITE_UPDATED}</lastmod>\n` +
         `    <changefreq>weekly</changefreq>\n    <priority>${L.path === '/' ? '1.0' : '0.8'}</priority>\n${alt}  </url>\n`).join('');
       return '<?xml version="1.0" encoding="UTF-8"?>\n' +
-        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">\n' + urls + '</urlset>\n';
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml" xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">\n' +
+        urls + blog.sitemapUrls(SITE_URL) + '</urlset>\n';
     },
 
     '/llms.txt': () => `# GameSlither
@@ -39,6 +41,6 @@ GameSlither is an independent game. It is not affiliated with, endorsed by, or c
 
 ## Pages
 ${LOCALES.map(L => `- [${L.name}](${SITE_URL}${L.path}): ${L.seo.title}`).join('\n')}
-`,
+${(list => (list ? `\n## Blog articles\n${list}\n` : ''))(blog.llmsLines(SITE_URL))}`,
   };
 };

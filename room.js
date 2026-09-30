@@ -11,11 +11,13 @@ const START_MASS = 10;
 const MIN_BOOST_MASS = 15;
 const MAX_R = 46;
 const CELL = 120;
-const FOOD_DENSITY = 2200 / (Math.PI * 4000 * 4000);
+// Mật độ mồi: gốc 2200 viên cho bản đồ bán kính 4000, nhân với FOOD_MULT (mặc định 2 → 4400 viên)
+const FOOD_MULT = Math.min(5, Math.max(0.5, Number(process.env.FOOD_MULT) || 2));
+const FOOD_DENSITY = FOOD_MULT * 2200 / (Math.PI * 4000 * 4000);
 
-const BOT_NAMES = ['Hổ Mang', 'Trăn Gấm', 'Lươn Điện', 'Rắn Mối', 'Slinky', 'Noodle', 'Viper',
+const BOT_NAMES = ['King Cobra', 'Silk Python', 'Electric Eel', 'Sidewinder', 'Slinky', 'Noodle', 'Viper',
   'Kaa', 'Sssnek', 'Wiggles', 'Python', 'Anaconda', 'Mamba', 'Cobra', 'Boa', 'Zigzag',
-  'Hisss', 'Mì Tôm', 'Bún Chả', 'Dây Thun', 'Cà Ri', 'Sợi Bún'];
+  'Hisss', 'Spaghetti', 'Ramen', 'Rubber Band', 'Curry', 'Shoelace'];
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const radiusOf = m => Math.min(9 + Math.sqrt(m) * 0.9, MAX_R);

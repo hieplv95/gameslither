@@ -35,6 +35,7 @@
       <nav class="tabs" role="tablist">
         <button role="tab" data-tab="stats" class="on">Thống kê</button>
         <button role="tab" data-tab="seo">Cài đặt SEO</button>
+        <button role="tab" data-tab="blog">Blog</button>
         <button role="tab" data-tab="account">Tài khoản</button>
       </nav>
       <div class="topbar-right">
@@ -126,6 +127,139 @@
           <p class="note">Google có thể tự viết lại tiêu đề/mô tả. Sau khi đổi, thường mất vài ngày tới vài tuần để kết quả tìm kiếm cập nhật.</p>
         </div>
       </div>
+    </section>
+
+    <!-- Blog -->
+    <section id="tab-blog" class="page hidden">
+      <!-- Danh sách + công cụ viết bài -->
+      <div id="blogList">
+        <div class="page-head"><h1>Blog</h1>
+          <div class="head-actions">
+            <a id="blogView" href="/blog/" target="_blank" rel="noopener">Xem blog ↗</a>
+            <button class="ghost" id="newPost" type="button">+ Tự viết bài</button>
+          </div>
+        </div>
+
+        <form id="genForm" class="panel gen">
+          <div class="panel-head"><h2>✍️ Viết bài tự động bằng AI</h2><span class="caps" id="caps"></span></div>
+          <div id="noKey" class="banner hidden">
+            <b>Chưa có ANTHROPIC_API_KEY.</b>
+            Thêm dòng <code>ANTHROPIC_API_KEY=sk-ant-…</code> vào file <code>.env</code> rồi khởi động lại server để dùng công cụ viết bài.
+          </div>
+          <div class="gen-grid">
+            <label>Ngôn ngữ bài viết<select id="gLang"></select></label>
+            <label class="span2">Hướng chủ đề (không bắt buộc)
+              <div class="inline">
+                <input id="gSeed" maxlength="300" placeholder="VD: mẹo chơi cho người mới, so sánh game io, chơi trên điện thoại…">
+                <button class="ghost" type="button" id="suggest">💡 Gợi ý chủ đề</button>
+              </div>
+            </label>
+          </div>
+          <div id="topics" class="topics hidden" role="list"></div>
+          <div class="gen-grid">
+            <label class="span2">Chủ đề bài viết<input id="gTopic" maxlength="300" required placeholder="Nhập chủ đề hoặc bấm một gợi ý ở trên"></label>
+            <label>Từ khoá chính (SEO)<input id="gKeyword" maxlength="120" placeholder="Để trống = AI tự chọn"></label>
+            <label>Độ dài
+              <select id="gLength"><option value="short">Ngắn (~800 từ)</option><option value="medium" selected>Vừa (~1.500 từ)</option><option value="long">Dài (~2.500 từ)</option></select>
+            </label>
+            <label>Giọng văn
+              <select id="gTone"><option value="friendly">Thân thiện, sôi nổi</option><option value="expert">Chuyên gia, phân tích</option><option value="beginner">Dễ hiểu cho người mới</option><option value="news">Tin tức, trung lập</option></select>
+            </label>
+            <label>Số ảnh
+              <select id="gImages"><option value="1">1 (ảnh bìa)</option><option value="2" selected>2</option><option value="3">3</option><option value="4">4</option></select>
+              <span class="hint hidden" id="imgHint">Chưa có key ảnh → chỉ tạo 1 ảnh bìa tự vẽ. Thêm <code>PEXELS_API_KEY</code> (miễn phí) hoặc <code>OPENAI_API_KEY</code> vào .env để có ảnh trong bài.</span>
+            </label>
+            <label class="span3">Yêu cầu thêm cho AI (không bắt buộc)<textarea id="gNotes" rows="2" maxlength="2000" placeholder="VD: nhắc tới chế độ phòng riêng, thêm bảng so sánh, viết cho học sinh…"></textarea></label>
+          </div>
+          <div class="form-actions">
+            <button class="btn" type="submit" id="genBtn">✍️ Viết bài</button>
+            <label class="check"><input type="checkbox" id="gPublish"> Đăng ngay, không cần duyệt</label>
+          </div>
+          <div id="jobs" class="jobs"></div>
+        </form>
+
+        <div class="panel">
+          <div class="panel-head"><h2>Bài viết</h2><span class="hint" id="postCount"></span></div>
+          <div class="table-wrap posts-wrap"><table id="postTable" class="posts"></table></div>
+        </div>
+      </div>
+
+      <!-- Trình soạn thảo -->
+      <form id="editor" class="hidden" novalidate>
+        <div class="page-head">
+          <div class="head-left"><button class="ghost" type="button" id="edBack">← Danh sách</button><h1 id="edHeading">Sửa bài</h1></div>
+          <div class="head-actions">
+            <button class="ghost" type="button" id="edPreview">Xem trước ↗</button>
+            <button class="btn" type="submit">Lưu</button>
+          </div>
+        </div>
+        <div class="editor-grid">
+          <div class="panel ed-main">
+            <label>Tiêu đề (H1 + title)
+              <input id="eTitle" maxlength="120" required>
+              <span class="hint"><span id="ceTitle"></span> ký tự · nên 45–60</span>
+            </label>
+            <label>Đường dẫn (slug)
+              <div class="inline"><span class="prefix" id="eSlugPrefix">/blog/</span><input id="eSlug" maxlength="80" pattern="[a-z0-9]+(-[a-z0-9]+)*"></div>
+            </label>
+            <label>Mô tả (meta description)
+              <textarea id="eDesc" rows="3" maxlength="320"></textarea>
+              <span class="hint"><span id="ceDesc"></span> ký tự · nên 120–160</span>
+            </label>
+            <label>Từ khoá<input id="eKeys" maxlength="400"><span class="hint">Cách nhau bằng dấu phẩy, từ khoá chính đứng đầu.</span></label>
+            <label>Tóm tắt (hiện ở thẻ bài)<textarea id="eExcerpt" rows="2" maxlength="300"></textarea></label>
+            <div class="label-row">
+              <span class="lbl">Nội dung (Markdown)</span>
+              <div class="md-tools">
+                <button type="button" class="ghost sm" data-md="## ">H2</button>
+                <button type="button" class="ghost sm" data-md="### ">H3</button>
+                <button type="button" class="ghost sm" data-md="**">Đậm</button>
+                <button type="button" class="ghost sm" data-md="- ">Danh sách</button>
+                <button type="button" class="ghost sm" data-md="link">Liên kết</button>
+                <button type="button" class="ghost sm" id="mdUpload">🖼 Tải ảnh</button>
+                <button type="button" class="ghost sm" id="mdAiImg">✨ Ảnh AI</button>
+              </div>
+            </div>
+            <textarea id="eContent" rows="28" spellcheck="true"></textarea>
+            <span class="hint">## Tiêu đề mục · ### Mục con · **đậm** · *nghiêng* · - danh sách · [chữ](/duong-dan) · ![mô tả ảnh](/media/…) · bảng | a | b |</span>
+
+            <div class="label-row"><span class="lbl">Câu hỏi thường gặp (FAQ – hiện dạng rich result trên Google)</span>
+              <button type="button" class="ghost sm" id="faqAdd">+ Thêm câu hỏi</button></div>
+            <div id="faqList" class="faq-list"></div>
+          </div>
+
+          <aside class="ed-side">
+            <div class="panel">
+              <label>Trạng thái
+                <select id="eStatus"><option value="draft">Bản nháp (chưa hiện)</option><option value="published">Đã đăng</option></select>
+              </label>
+              <label>Ngôn ngữ<select id="eLang"></select></label>
+              <p class="hint" id="eDates"></p>
+              <div class="form-actions"><button class="btn" type="submit">Lưu</button><button class="ghost danger" type="button" id="edDelete">Xoá bài</button></div>
+            </div>
+            <div class="panel">
+              <div class="panel-head"><h2>Ảnh bìa</h2></div>
+              <div class="cover-box" id="coverBox"><img id="eCoverImg" alt=""><span id="coverEmpty">Chưa có ảnh bìa</span></div>
+              <div class="row-btns">
+                <button type="button" class="ghost sm" id="coverUpload">Tải ảnh lên</button>
+                <button type="button" class="ghost sm" id="coverAi">✨ Tạo ảnh mới</button>
+                <button type="button" class="ghost sm" id="coverRemove">Bỏ ảnh</button>
+              </div>
+              <label>Mô tả ảnh (alt)<input id="eCoverAlt" maxlength="160"></label>
+              <label>Nguồn ảnh<input id="eCredit" maxlength="500" placeholder="Để trống nếu ảnh của bạn"></label>
+            </div>
+            <div class="panel">
+              <div class="panel-head"><h2>Xem trước trên Google</h2></div>
+              <div class="serp">
+                <div class="serp-url" id="eUrl"></div>
+                <div class="serp-title" id="eSerpTitle"></div>
+                <div class="serp-desc" id="eSerpDesc"></div>
+              </div>
+            </div>
+          </aside>
+        </div>
+      </form>
+      <input type="file" id="fileInput" accept="image/png,image/jpeg,image/webp" hidden>
     </section>
 
     <!-- Tài khoản -->
