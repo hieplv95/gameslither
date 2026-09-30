@@ -4,7 +4,11 @@
   const $ = id => document.getElementById(id) || document.createElement('div');
   const canvas = $('game'), ctx = canvas.getContext('2d');
   const mini = $('minimap'), mctx = mini.getContext('2d');
-  const INTERP_DELAY = 80; // ms – hiển thị trễ một chút để nội suy mượt giữa các gói tin
+  // Hiển thị trễ một chút để nội suy mượt giữa các gói tin. Độ trễ tự nới ra khi mạng giật
+  // (WiFi điện thoại hay có gói đến muộn 100–300ms), nếu không rắn sẽ đứng hình rồi giật cục.
+  const INTERP_MIN = 80, INTERP_MAX = 250, EXTRAP_MAX = 150; // ms
+  let interpDelay = INTERP_MIN;
+  const lateness = [];   // độ muộn của các gói gần đây so với gói nhanh nhất (ms)
   const Skins = window.SnakeSkins;
   const HUES = [0, 20, 45, 75, 120, 160, 190, 215, 250, 280, 310, 335]; // màu cho mẫu Cổ điển
   const UNIT = 1e6;
@@ -349,6 +353,12 @@
     const d = now - m.ts;
     if (clockOffset === null || d < clockOffset) clockOffset = d;
     else clockOffset += (d - clockOffset) * 0.02;
+    // Độ giật: lấy mức muộn ở 95% gói trong ~3 giây gần nhất, cộng 1 nhịp gửi (33ms)
+    lateness.push(d - clockOffset);
+    if (lateness.length > 90) lateness.shift();
+    const sorted = [...lateness].sort((a, b) => a - b);
+    const want = Math.min(INTERP_MAX, Math.max(INTERP_MIN, sorted[Math.floor(sorted.length * 0.95)] + 40));
+    interpDelay += (want - interpDelay) * (want > interpDelay ? 0.2 : 0.02);   // tăng nhanh, giảm từ từ
 
     const map = new Map();
     for (const a of m.sn) map.set(a[0], { id: a[0], name: a[1], skin: a[2], r: a[3] / 10, boost: a[4], ang: a[5] / 100, pts: a[6], hue: a[7] });
@@ -439,13 +449,20 @@
   // ------------------------------------------------------------ interpolation
   function getFrame(now) {
     if (!snaps.length) return null;
-    const rt = now - clockOffset - INTERP_DELAY;
+    const rt = now - clockOffset - interpDelay;
     let a = -1;
     for (let k = snaps.length - 1; k >= 0; k--) if (snaps[k].ts <= rt) { a = k; break; }
     if (a < 0) return snaps[0];
-    if (a === snaps.length - 1) return snaps[a];
+    let t;
+    if (a === snaps.length - 1) {
+      // Gói tiếp theo chưa tới: đoán tiếp chuyển động từ 2 gói cuối (tối đa EXTRAP_MAX) thay vì đứng hình
+      if (a === 0) return snaps[0];
+      a--;
+      const dt = snaps[a + 1].ts - snaps[a].ts;
+      t = Math.min((rt - snaps[a].ts) / dt, 1 + EXTRAP_MAX / dt);
+    }
     const s0 = snaps[a], s1 = snaps[a + 1];
-    const t = (rt - s0.ts) / (s1.ts - s0.ts);
+    if (t === undefined) t = (rt - s0.ts) / (s1.ts - s0.ts);
     const out = new Map();
     for (const [id, b] of s1.snakes) {
       const p = s0.snakes.get(id);
