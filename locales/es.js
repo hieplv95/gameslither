@@ -122,6 +122,9 @@ module.exports = {
     'skinDesc.4': 'Nebulosas rosas y moradas con estrellas que titilan.',
     'skinDesc.5': 'Serpiente de un color con rayas: elige entre 12 colores.',
     skinAria: 'Skin de serpiente {name}',
+    coins: 'monedas', shop: 'Tienda', shopTitle: 'Tienda de skins',
+    shopIntro: 'Gana monedas en el modo gratis: +1 por cada {per} de longitud que alcances y +{kill} por cada serpiente que elimines. Gástalas en skins con banderas de países.',
+    buy: 'Comprar', use: 'Usar', inUse: 'En uso', bought: '¡Desbloqueaste {name}!', coinsEarned: '+{n} monedas',
   },
   blog: {
     nav: 'Blog',
@@ -151,5 +154,6 @@ module.exports = {
     minWd: 'El retiro mínimo es de {min} USDT.', badAddr: 'Dirección de monedero no válida (debe empezar por 0x…).',
     wdInPaid: 'No puedes retirar mientras estás en una sala de pago.', noFunds2: 'Saldo insuficiente.',
     wdOk: 'Retiro n.º {id} de {amount} USDT creado y pendiente de revisión.', demoMax: 'El saldo de prueba está limitado a 100 USDT.',
+    noCoins: 'No tienes suficientes monedas.',
   },
 };

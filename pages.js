@@ -127,6 +127,10 @@ function render(L) {
             <input id="name" maxlength="16" placeholder="${esc(t.nickname)}" autocomplete="off" spellcheck="false" aria-label="${esc(t.nickname)}">
             <div id="skins"></div>
             <div id="hues" class="hidden"></div>
+            <div class="shop-bar">
+              <span class="coins" title="${esc(ui.coins)}">🪙 <b id="coins">0</b> ${esc(ui.coins)}</span>
+              <button id="openShop" class="btn ghost sm">🛒 ${esc(ui.shop)}</button>
+            </div>
 
             <div class="mode">
               <div class="mode-head"><div class="mode-title">🎮 ${t.freePlay}</div><span id="onlineInfo" class="muted"></span></div>
@@ -164,6 +168,16 @@ function render(L) {
               <button id="joinCode" class="btn sm">${t.join}</button>
             </div>
             <button id="createRoom" class="btn ghost">${t.createRoom}</button>
+            <button class="link" data-close>${t.close}</button>
+          </div>
+        </div>
+
+        <div id="shopModal" class="overlay hidden">
+          <div class="card wide" dir="${L.dir}">
+            <div class="card-title">🛒 ${esc(ui.shopTitle)}</div>
+            <p class="coins-big">🪙 <b id="shopCoins">0</b></p>
+            <p class="muted small" id="shopIntro"></p>
+            <div id="shopList"></div>
             <button class="link" data-close>${t.close}</button>
           </div>
         </div>

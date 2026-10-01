@@ -123,6 +123,9 @@ module.exports = {
     'skinDesc.4': 'Pink and purple nebulae with twinkling stars.',
     'skinDesc.5': 'Striped single-color snake — pick any of 12 colors.',
     skinAria: '{name} snake skin',
+    coins: 'coins', shop: 'Shop', shopTitle: 'Skin shop',
+    shopIntro: 'Earn coins in free play: +1 for every {per} length you reach and +{kill} for every snake you take down. Spend them on country flag skins.',
+    buy: 'Buy', use: 'Use', inUse: 'In use', bought: 'Unlocked {name}!', coinsEarned: '+{n} coins',
   },
   blog: {
     nav: 'Blog',
@@ -152,5 +155,6 @@ module.exports = {
     minWd: 'Minimum withdrawal is {min} USDT.', badAddr: 'Invalid wallet address (must start with 0x…).',
     wdInPaid: 'You cannot withdraw while in a paid room.', noFunds2: 'Insufficient balance.',
     wdOk: 'Withdrawal #{id} for {amount} USDT created and pending review.', demoMax: 'Test balance is capped at 100 USDT.',
+    noCoins: 'Not enough coins.',
   },
 };

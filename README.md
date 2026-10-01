@@ -6,6 +6,11 @@ Hai chế độ:
   Đủ 15 người thì đếm ngược 10 giây rồi vào trận. Vòng bo thu hẹp sau 45 giây; người sống sót cuối cùng
   (hoặc con dài nhất khi hết 5 phút) nhận toàn bộ tiền cược trừ 5% phí nhà cái.
 
+**Cửa hàng skin**: chơi miễn phí để kiếm **xu** 🪙 (tách riêng, không đổi được ra USDT). Khi rắn chết: +1 xu cho mỗi 10 độ dài
+đạt được (tính từ độ dài lúc mới vào) và +5 xu cho mỗi con rắn đã hạ gục. Dùng xu mua 23 skin cờ: 20 nước đông dân nhất
+(Liên Hợp Quốc, ước tính 2025) + Vương quốc Anh, Ý, Tây Ban Nha, giá 500 xu/skin. Đổi các mức này ở đầu `server.js` (`COINS_PER_LENGTH`, `KILL_COINS`, `SKIN_PRICE`).
+Server kiểm tra quyền sở hữu: gửi số skin chưa mua sẽ bị đổi về skin Cổ điển. Mẫu vẽ cờ ở `public/skins.js`.
+
 > ⚠️ Hiện đang ở **chế độ thử**: tiền là tiền ảo (nút "Nạp thử"), lệnh rút chỉ được ghi lại chứ chưa chuyển tiền thật.
 > Chưa có đăng nhập bằng ví: tài khoản gắn với token lưu trong trình duyệt, xoá dữ liệu trình duyệt là mất tài khoản.
 

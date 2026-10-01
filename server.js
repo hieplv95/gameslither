@@ -6,7 +6,7 @@ const crypto = require('crypto');
 const { WebSocketServer } = require('ws');
 const db = require('./db');
 const panel = require('./panel');
-const { Room, send, TICK_RATE, SKIN_COUNT } = require('./room');
+const { Room, send, TICK_RATE, START_MASS, CLASSIC, FREE_SKINS, SKIN_COUNT } = require('./room');
 
 // ---------------------------------------------------------------- config
 const PORT = process.env.PORT || 3000;
@@ -22,6 +22,12 @@ const FREE_CAP = 50;
 const FREE_BOTS = 18;
 const MIN_WITHDRAW = 2;                                 // USDT
 const U = db.UNIT;
+// Cửa hàng mẫu rắn: xu chỉ kiếm được ở phòng miễn phí, cộng khi rắn chết.
+const COINS_PER_LENGTH = 10;                            // +1 xu cho mỗi 10 độ dài đạt được (tính từ độ dài lúc mới vào)
+const KILL_COINS = 5;                                   // +5 xu cho mỗi con rắn hạ gục
+const SKIN_PRICE = 500;                                 // giá mỗi mẫu cờ (xu)
+const SHOP = new Map();                                 // mẫu -> giá; các mẫu từ FREE_SKINS trở đi phải mua
+for (let k = FREE_SKINS; k < SKIN_COUNT; k++) SHOP.set(k, SKIN_PRICE);
 
 // ---------------------------------------------------------------- static files
 const PUBLIC = path.join(__dirname, 'public');
@@ -107,6 +113,7 @@ function liveStats() {
 function createFreeRoom(isPublic) {
   const code = makeCode();
   const room = new Room({ uid: uid(), code, mode: 'free', worldR: 4000, bots: FREE_BOTS, cap: FREE_CAP });
+  room.onDeath = rewardCoins;
   room.isPublic = isPublic;
   room.emptySince = Date.now();
   freeRooms.set(code, room);
@@ -139,16 +146,35 @@ const M = (c, key, vars = {}) => String((LOCALE_BY_CODE.get(c.lang) || LOCALES[0
 function sanitizeName(n) {
   return (typeof n === 'string' ? n : '').replace(/[\u0000-\u001f]/g, '').trim().slice(0, 16) || 'Guest';
 }
-// Mẫu rắn + màu (màu chỉ dùng cho mẫu Cổ điển)
-function sanitizeLook(m) {
+// Mẫu rắn + màu (màu chỉ dùng cho mẫu Cổ điển). Mẫu phải mua mà tài khoản chưa có → Cổ điển.
+function sanitizeLook(m, acct) {
   let k = Math.floor(Number(m.skin));
-  if (!(k >= 0 && k < SKIN_COUNT)) k = Math.floor(Math.random() * SKIN_COUNT);
+  if (!(k >= 0 && k < SKIN_COUNT)) k = Math.floor(Math.random() * FREE_SKINS);
+  if (k >= FREE_SKINS && !db.ownsSkin(acct, k)) k = CLASSIC;
   let h = Math.floor(Number(m.hue));
   if (!Number.isFinite(h)) h = Math.floor(Math.random() * 360);
   return { skin: k, hue: ((h % 360) + 360) % 360 };
 }
 function sendBalance(c) {
   if (c.acct) send(c, { t: 'bal', bal: db.balance(c.acct) });
+}
+
+// ---------------------------------------------------------------- xu & cửa hàng
+// Gọi khi rắn của người chơi chết trong phòng miễn phí; kết quả được gửi kèm tin 'dead'.
+function rewardCoins(s) {
+  const acct = s.client && s.client.acct;
+  if (!acct) return null;
+  const earned = Math.floor((s.peak - START_MASS) / COINS_PER_LENGTH) + s.kills * KILL_COINS;
+  return { earned, coins: earned > 0 ? db.addCoins(acct, earned) : db.coins(acct) };
+}
+
+function buySkin(c, m) {
+  const skin = Math.floor(Number(m.skin));
+  const price = SHOP.get(skin);
+  if (!price) return;
+  const r = db.buySkin(c.acct, skin, price);
+  if (r === 'noCoins') return send(c, { t: 'err', msg: M(c, 'noCoins') });
+  send(c, { t: 'shop', coins: db.coins(c.acct), owned: db.ownedSkins(c.acct), bought: r === 'ok' ? skin : undefined });
 }
 
 // ---------------------------------------------------------------- free play
@@ -168,7 +194,7 @@ function joinFree(c, m) {
   if (room.humanCount() >= room.cap && c.room !== room) return send(c, { t: 'err', msg: M(c, 'roomFull') });
   if (c.room !== room) { leaveRoom(c); room.clients.add(c); c.room = room; }
   if (c.snake && c.snake.alive) return;
-  c.snake = room.spawnSnake(sanitizeName(m.name), sanitizeLook(m), false, c);
+  c.snake = room.spawnSnake(sanitizeName(m.name), sanitizeLook(m, c.acct), false, c);
   db.recordPlay('free', c.country);
   c.known = new Set();
   send(c, { t: 'init', id: c.snake.id, wr: room.baseR, mode: 'free', code: room.code });
@@ -201,7 +227,7 @@ function joinPaid(c, m) {
   leaveRoom(c);
   c.queue = q;
   c.paidName = sanitizeName(m.name);
-  c.paidLook = sanitizeLook(m);
+  c.paidLook = sanitizeLook(m, c.acct);
   q.members.set(c.acct, c);
   inPaid.set(c.acct, c);
   sendBalance(c);
@@ -320,7 +346,8 @@ wss.on('connection', (ws, req) => {
       c.lang = LOCALE_BY_CODE.has(m.lang) ? m.lang : 'en';
       const a = db.login(m.token);
       c.acct = a.id;
-      send(c, { t: 'acct', token: a.token, id: a.id, bal: a.balance });
+      send(c, { t: 'acct', token: a.token, id: a.id, bal: a.balance,
+        coins: db.coins(a.id), owned: db.ownedSkins(a.id), shop: [...SHOP], earn: { per: COINS_PER_LENGTH, kill: KILL_COINS } });
       send(c, lobbyInfo());
       return;
     }
@@ -335,6 +362,7 @@ wss.on('connection', (ws, req) => {
         }
         break;
       case 'joinFree': joinFree(c, m); break;
+      case 'buySkin': buySkin(c, m); break;
       case 'leave':
         if (!c.room) break;
         if (c.room.mode === 'paid') {

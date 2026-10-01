@@ -94,6 +94,23 @@ canvas#game { position: absolute; inset: 0; width: 100%; height: 100%; display: 
 .hue.sel { border-color: #fff; transform: scale(1.15); }
 @media (max-width: 440px) { #skins { grid-template-columns: repeat(3, 1fr); } }
 
+/* xu + cửa hàng mẫu rắn */
+.shop-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 8px 0 2px; }
+.shop-bar .btn { width: auto; padding: 8px 16px; }
+.coins { font-size: 14px; color: #cbd5e1; font-weight: 700; }
+.coins b, .coins-big b { color: var(--gold); font-variant-numeric: tabular-nums; }
+.coins b { font-size: 17px; }
+.coins-big { font-size: 24px; font-weight: 800; margin: 0 0 4px; }
+#shopList { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 10px 0 4px; }
+.shop-item { border: 2px solid #243040; background: #0f151c; border-radius: 12px; padding: 4px 4px 6px;
+  display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.shop-item.owned { border-color: rgba(124,255,107,0.45); }
+.shop-item canvas { width: 100%; height: 58px; display: block; }
+.shop-item b { font-size: 12px; line-height: 1.2; min-height: 2.4em; display: flex; align-items: center; justify-content: center; text-align: center; }
+.shop-item .btn { padding: 6px 2px; font-size: 12px; box-shadow: none; }
+.btn:disabled { opacity: 0.45; cursor: default; }
+@media (max-width: 440px) { #shopList { grid-template-columns: repeat(2, 1fr); } }
+
 /* 2 chế độ trong sảnh */
 .mode { text-align: left; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07); border-radius: 14px; padding: 14px; margin-top: 12px; }
 .mode.paid { border-color: rgba(251,191,36,0.25); background: rgba(251,191,36,0.04); }

@@ -120,6 +120,9 @@ module.exports = {
     'skinDesc.4': '粉紫色星云与闪烁的星星。',
     'skinDesc.5': '带条纹的单色蛇——12 种颜色任你选。',
     skinAria: '{name} 蛇皮肤',
+    coins: '金币', shop: '商店', shopTitle: '皮肤商店',
+    shopIntro: '在免费模式中赚取金币：长度每增加 {per} 得 1 枚，每击败一条蛇得 {kill} 枚。用金币购买各国国旗皮肤。',
+    buy: '购买', use: '使用', inUse: '使用中', bought: '已解锁 {name}！', coinsEarned: '+{n} 金币',
   },
   blog: {
     nav: '博客',
@@ -149,5 +152,6 @@ module.exports = {
     minWd: '最低提现 {min} USDT。', badAddr: '钱包地址无效（需以 0x 开头）。',
     wdInPaid: '在付费房间中时无法提现。', noFunds2: '余额不足。',
     wdOk: '已创建提现申请 #{id}（{amount} USDT），等待审核。', demoMax: '测试余额上限为 100 USDT。',
+    noCoins: '金币不足。',
   },
 };

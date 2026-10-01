@@ -18,7 +18,8 @@
   const Skins = window.SnakeSkins;
   const T = window.I18N.t;
   const gallery = $('skinsGallery');
-  const order = [Skins.CLASSIC, ...Skins.SKINS.keys()].filter((v, i, a) => a.indexOf(v) === i);
+  // chỉ giới thiệu 6 mẫu miễn phí (mẫu cờ xem trong cửa hàng trong game)
+  const order = [Skins.CLASSIC, ...Skins.SKINS.keys()].filter((v, i, a) => a.indexOf(v) === i && v < Skins.FREE);
   const items = order.map(i => {
     const fig = document.createElement('figure');
     fig.className = 'skin-card';

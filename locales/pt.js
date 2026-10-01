@@ -122,6 +122,9 @@ module.exports = {
     'skinDesc.4': 'Nebulosas rosa e roxas com estrelas cintilantes.',
     'skinDesc.5': 'Cobra listrada de uma cor — escolha entre 12 cores.',
     skinAria: 'Skin de cobra {name}',
+    coins: 'moedas', shop: 'Loja', shopTitle: 'Loja de skins',
+    shopIntro: 'Ganhe moedas no modo grátis: +1 a cada {per} de comprimento alcançado e +{kill} por cobra derrotada. Use-as em skins com bandeiras de países.',
+    buy: 'Comprar', use: 'Usar', inUse: 'Em uso', bought: '{name} desbloqueada!', coinsEarned: '+{n} moedas',
   },
   blog: {
     nav: 'Blog',
@@ -151,5 +154,6 @@ module.exports = {
     minWd: 'Saque mínimo de {min} USDT.', badAddr: 'Endereço de carteira inválido (deve começar com 0x…).',
     wdInPaid: 'Não é possível sacar enquanto estiver em uma sala paga.', noFunds2: 'Saldo insuficiente.',
     wdOk: 'Saque nº {id} de {amount} USDT criado e aguardando análise.', demoMax: 'O saldo de teste é limitado a 100 USDT.',
+    noCoins: 'Moedas insuficientes.',
   },
 };

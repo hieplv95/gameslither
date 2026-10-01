@@ -33,10 +33,16 @@ function angleDiff(a, b) {
   return d;
 }
 
-// Màu chủ đạo của các mẫu rắn (Neon, Rồng Vàng, Kẹo, Trăn, Thiên Hà) — dùng cho mồi rơi ra khi chết.
-// Mẫu cuối (CLASSIC) là rắn một màu: màu do người chơi chọn.
-const SKIN_HUES = [188, 42, 320, 80, 262, null];
-const CLASSIC = SKIN_HUES.length - 1;
+// Màu chủ đạo của các mẫu rắn — dùng cho mồi rơi ra khi chết. Thứ tự khớp SKINS ở public/skins.js.
+// 0–4: Neon, Rồng Vàng, Kẹo, Trăn, Thiên Hà · 5: Cổ điển (rắn một màu, màu do người chơi chọn) — 6 mẫu miễn phí.
+// 6–25: cờ 20 nước đông dân nhất (mua trong cửa hàng bằng xu): Ấn Độ, Trung Quốc, Mỹ, Indonesia, Pakistan,
+// Nigeria, Brazil, Bangladesh, Nga, Ethiopia, Mexico, Nhật, Ai Cập, Philippines, CHDC Congo, Việt Nam, Iran,
+// Thổ Nhĩ Kỳ, Đức, Thái Lan · 26–28: thêm Vương quốc Anh, Ý, Tây Ban Nha.
+const SKIN_HUES = [188, 42, 320, 80, 262, null,
+  30, 0, 220, 0, 140, 140, 140, 150, 220, 55, 140, 350, 0, 220, 205, 0, 140, 355, 48, 230,
+  220, 120, 45];
+const CLASSIC = 5;
+const FREE_SKINS = 6;
 
 let nextSnakeId = 1; // dùng chung mọi phòng để id không bao giờ trùng
 let nextFoodId = 1;
@@ -175,7 +181,7 @@ class Room {
     const s = {
       id: nextSnakeId++, name, skin, hue, bot, alive: true, client,
       x: p.x, y: p.y, angle, targetAngle: angle, boost: false, boosting: false,
-      mass: START_MASS, r: radiusOf(START_MASS), boostAcc: 0, segs: [],
+      mass: START_MASS, peak: START_MASS, kills: 0, r: radiusOf(START_MASS), boostAcc: 0, segs: [],
       foodTarget: null, thinkIn: 0, boostTicks: 0,
     };
     const len = segCountOf(s.mass) * SEG;
@@ -211,6 +217,7 @@ class Room {
   killSnake(s, killer) {
     if (!s.alive) return;
     s.alive = false;
+    if (killer && killer !== s) killer.kills++;
     const segs = s.segs;
     const drops = Math.max(3, Math.floor(segs.length / 2));
     const v = Math.max(1, Math.round((s.mass * 0.75) / drops));
@@ -222,6 +229,7 @@ class Room {
     if (s.client) {
       const msg = { t: 'dead', mass: Math.floor(s.mass), by: killer ? killer.name : null };
       if (this.mode === 'paid') msg.place = this.humanCount() + 1;
+      if (this.onDeath) Object.assign(msg, this.onDeath(s));   // server cộng thưởng (xu) và báo kèm
       send(s.client, msg);
     }
   }
@@ -334,6 +342,7 @@ class Room {
         const dx = f.x - s.x, dy = f.y - s.y;
         if (dx * dx + dy * dy < er * er) {
           s.mass += f.v;
+          if (s.mass > s.peak) s.peak = s.mass;
           this.eatenBy.set(f.id, s.id);
           this.removeFood(f);
         }
@@ -450,4 +459,4 @@ function rebuildSegs(s) {
   s.minX = minX - s.r; s.maxX = maxX + s.r; s.minY = minY - s.r; s.maxY = maxY + s.r;
 }
 
-module.exports = { Room, send, TICK_RATE, SKIN_COUNT: SKIN_HUES.length };
+module.exports = { Room, send, TICK_RATE, START_MASS, CLASSIC, FREE_SKINS, SKIN_COUNT: SKIN_HUES.length };

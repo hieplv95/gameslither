@@ -122,6 +122,9 @@ module.exports = {
     'skinDesc.4': 'Nebula merah muda dan ungu dengan bintang berkelip.',
     'skinDesc.5': 'Ular satu warna bergaris — pilih dari 12 warna.',
     skinAria: 'Skin ular {name}',
+    coins: 'koin', shop: 'Toko', shopTitle: 'Toko skin',
+    shopIntro: 'Dapatkan koin di mode gratis: +1 untuk setiap {per} panjang yang kamu capai dan +{kill} untuk setiap ular yang kamu kalahkan. Belanjakan untuk skin bendera negara.',
+    buy: 'Beli', use: 'Pakai', inUse: 'Dipakai', bought: '{name} terbuka!', coinsEarned: '+{n} koin',
   },
   blog: {
     nav: 'Blog',
@@ -151,5 +154,6 @@ module.exports = {
     minWd: 'Penarikan minimum {min} USDT.', badAddr: 'Alamat dompet tidak valid (harus diawali 0x…).',
     wdInPaid: 'Tidak bisa menarik dana saat berada di room berbayar.', noFunds2: 'Saldo tidak cukup.',
     wdOk: 'Penarikan #{id} sebesar {amount} USDT dibuat dan menunggu peninjauan.', demoMax: 'Saldo uji dibatasi 100 USDT.',
+    noCoins: 'Koin tidak cukup.',
   },
 };

@@ -58,8 +58,14 @@
   let scale = 1, ringR = 4000;
   let lbData = null, lobby = null;
   let mouseAngle = 0, boost = false, sentAngle = null, sentBoost = false;
-  let mySkin = Math.floor(Math.random() * Skins.SKINS.length);
+  let mySkin = Math.floor(Math.random() * Skins.FREE);
   let myHue = HUES[Math.floor(Math.random() * HUES.length)];
+  // Cửa hàng: xu, mẫu đã mua, bảng giá (server gửi trong tin 'acct')
+  let coins = 0, owned = new Set(), prices = new Map(), earn = { per: 10, kill: 5 };
+  const unlocked = i => i < Skins.FREE || owned.has(i);
+  const curSkin = () => (unlocked(mySkin) ? mySkin : Skins.CLASSIC);
+  const look = () => ({ skin: curSkin(), hue: myHue });
+  const num = n => n.toLocaleString(LOCALE);
 
   // ------------------------------------------------------------ menu
   {
@@ -68,25 +74,67 @@
     const n = lsGet('rn_name'); if (n) $('name').value = n;
   }
   const skinsEl = $('skins');
-  // Cổ điển đứng đầu, sau đó là 5 mẫu hoa văn
-  const skinOrder = [Skins.CLASSIC, ...Skins.SKINS.keys()].filter((v, i, arr) => arr.indexOf(v) === i);
-  const skinCanvases = [];
-  for (const i of skinOrder) {
-    const sk = Skins.SKINS[i];
-    const b = document.createElement('button');
-    b.className = 'skin' + (i === mySkin ? ' sel' : '');
-    const cv = document.createElement('canvas');
-    const label = document.createElement('span');
-    label.textContent = T('skin.' + i);
-    b.append(cv, label);
-    b.onclick = () => {
-      mySkin = i; lsSet('rn_skin', i);
-      for (const x of skinsEl.children) x.classList.toggle('sel', x === b);
-      show('hues', mySkin === Skins.CLASSIC);
-    };
-    skinsEl.appendChild(b);
-    skinCanvases.push([cv, i]);
+  const skinCanvases = [], shopCanvases = [];
+  // Cổ điển đứng đầu, sau đó là 5 mẫu hoa văn, rồi các mẫu cờ đã mua
+  function renderPicker() {
+    skinsEl.textContent = '';
+    skinCanvases.length = 0;
+    const order = [Skins.CLASSIC, ...Skins.SKINS.keys()].filter((v, i, arr) => arr.indexOf(v) === i && unlocked(v));
+    for (const i of order) {
+      const b = document.createElement('button');
+      b.className = 'skin' + (i === curSkin() ? ' sel' : '');
+      const cv = document.createElement('canvas');
+      const label = document.createElement('span');
+      label.textContent = Skins.nameOf(i);
+      b.append(cv, label);
+      b.onclick = () => selectSkin(i);
+      skinsEl.appendChild(b);
+      skinCanvases.push([cv, i]);
+    }
+    show('hues', curSkin() === Skins.CLASSIC);
   }
+  function selectSkin(i) {
+    mySkin = i; lsSet('rn_skin', i);
+    renderPicker();
+    if (!$('shopModal').classList.contains('hidden')) renderShop();
+  }
+  renderPicker();
+
+  // ------------------------------------------------------------ cửa hàng mẫu rắn
+  function setCoins(n) { coins = n; $('coins').textContent = num(n); }
+  function renderShop() {
+    $('shopCoins').textContent = num(coins);
+    $('shopIntro').textContent = T('shopIntro', { per: earn.per, kill: earn.kill });
+    const list = $('shopList');
+    list.textContent = '';
+    shopCanvases.length = 0;
+    for (const [i, price] of prices) {
+      const item = document.createElement('div');
+      item.className = 'shop-item' + (owned.has(i) ? ' owned' : '');
+      const cv = document.createElement('canvas');
+      const name = document.createElement('b');
+      name.textContent = Skins.nameOf(i);
+      const btn = document.createElement('button');
+      if (owned.has(i)) {
+        const using = curSkin() === i;
+        btn.className = 'btn sm ghost';
+        btn.textContent = using ? T('inUse') : T('use');
+        btn.disabled = using;
+        btn.onclick = () => selectSkin(i);
+      } else {
+        btn.className = 'btn sm';
+        btn.textContent = `🪙 ${num(price)}`;
+        btn.title = `${T('buy')} · ${num(price)}`;
+        btn.setAttribute('aria-label', btn.title);
+        btn.disabled = coins < price;
+        btn.onclick = () => sendMsg({ t: 'buySkin', skin: i });
+      }
+      item.append(cv, name, btn);
+      list.appendChild(item);
+      shopCanvases.push([cv, i]);
+    }
+  }
+  $('openShop').onclick = () => { renderShop(); show('shopModal'); };
   // Hàng chọn màu, chỉ hiện khi chọn mẫu Cổ điển
   const huesEl = $('hues');
   for (const h of HUES) {
@@ -100,22 +148,21 @@
     };
     huesEl.appendChild(b);
   }
-  show('hues', mySkin === Skins.CLASSIC);
-  // Rắn nhỏ uốn lượn tại chỗ trong mỗi ô chọn mẫu
+  // Rắn nhỏ uốn lượn tại chỗ trong mỗi ô chọn mẫu / ô cửa hàng (ô đang ẩn có clientWidth = 0 nên bỏ qua)
   function drawSkinPreviews(t) {
     if ($('menu').classList.contains('hidden')) return;
-    skinCanvases.forEach(([cv, i]) => {
+    for (const [cv, i] of [...skinCanvases, ...shopCanvases]) {
       const w = cv.clientWidth, h = cv.clientHeight;
-      if (!w) return;
+      if (!w) continue;
       if (cv.width !== Math.round(w * DPR)) { cv.width = Math.round(w * DPR); cv.height = Math.round(h * DPR); }
       const g = cv.getContext('2d');
       g.setTransform(DPR, 0, 0, DPR, 0, 0);
       g.clearRect(0, 0, w, h);
-      const r = Math.min(8, h * 0.17), pts = [];
+      const r = Math.min(10, h * 0.17), pts = [];
       for (let j = 0, x = w - r * 1.8; x > r; j++, x -= 3) pts.push(x, h / 2 + Math.sin(t * 3 - j * 0.14) * h * 0.16);
       const P = Skins.resampleFlat(pts, r, Math.atan2(pts[1] - pts[3], pts[0] - pts[2]));
       Skins.draw(g, P, i, t, r, P[0].a, false, myHue);
-    });
+    }
   }
   const myName = () => {
     const n = $('name').value.trim().slice(0, 16) || T('guest');
@@ -134,7 +181,7 @@
 
   function showLobby(msg) {
     mode = null; alive = false; inQueue = false;
-    for (const id of ['death', 'hud', 'queue', 'roomsModal', 'walletModal']) show(id, false);
+    for (const id of ['death', 'hud', 'queue', 'roomsModal', 'walletModal', 'shopModal']) show(id, false);
     show('menu');
     $('status').textContent = msg || '';
     snaps.length = 0;
@@ -157,14 +204,14 @@
   connect();
 
   // ------------------------------------------------------------ lobby actions
-  $('play').onclick = () => sendMsg({ t: 'joinFree', name: myName(), skin: mySkin, hue: myHue });
+  $('play').onclick = () => sendMsg({ t: 'joinFree', name: myName(), ...look() });
   $('name').addEventListener('keydown', e => { if (e.key === 'Enter') $('play').click(); });
   $('pickRoom').onclick = () => { renderRooms(); show('roomsModal'); };
   $('joinCode').onclick = () => {
     const code = $('roomCode').value.trim().toUpperCase();
-    if (code) sendMsg({ t: 'joinFree', code, name: myName(), skin: mySkin, hue: myHue });
+    if (code) sendMsg({ t: 'joinFree', code, name: myName(), ...look() });
   };
-  $('createRoom').onclick = () => sendMsg({ t: 'joinFree', create: true, name: myName(), skin: mySkin, hue: myHue });
+  $('createRoom').onclick = () => sendMsg({ t: 'joinFree', create: true, name: myName(), ...look() });
   for (const b of document.querySelectorAll('[data-close]')) b.onclick = () => b.closest('.overlay').classList.add('hidden');
 
   function renderRooms() {
@@ -178,7 +225,7 @@
       const btn = document.createElement('button');
       btn.className = 'btn sm';
       btn.textContent = T('join');
-      btn.onclick = () => sendMsg({ t: 'joinFree', code, name: myName(), skin: mySkin, hue: myHue });
+      btn.onclick = () => sendMsg({ t: 'joinFree', code, name: myName(), ...look() });
       row.append(label, btn);
       list.appendChild(row);
     }
@@ -194,7 +241,7 @@
       for (const [stake] of lobby.tiers) {
         const b = document.createElement('button');
         b.className = 'tier';
-        b.onclick = () => sendMsg({ t: 'joinPaid', stake, name: myName(), skin: mySkin, hue: myHue });
+        b.onclick = () => sendMsg({ t: 'joinPaid', stake, name: myName(), ...look() });
         b.append(document.createElement('b'), document.createElement('span'), document.createElement('span'));
         el.appendChild(b);
       }
@@ -242,7 +289,7 @@
   $('qLeave').onclick = () => sendMsg({ t: 'leaveQueue' });
   $('again').onclick = () => {
     show('death', false);
-    if (mode === 'free') sendMsg({ t: 'joinFree', name: myName(), skin: mySkin, hue: myHue });
+    if (mode === 'free') sendMsg({ t: 'joinFree', name: myName(), ...look() });
     else { sendMsg({ t: 'leave' }); showLobby(); }
   };
   $('toMenu').onclick = () => { sendMsg({ t: 'leave' }); showLobby(); };
@@ -264,6 +311,16 @@
       case 'acct':
         lsSet('rn_token', m.token);
         $('balance').textContent = usd(m.bal);
+        owned = new Set(m.owned); prices = new Map(m.shop); earn = m.earn;
+        setCoins(m.coins);
+        renderPicker();
+        break;
+      case 'shop':
+        owned = new Set(m.owned);
+        setCoins(m.coins);
+        if (m.bought !== undefined) { toast(T('bought', { name: Skins.nameOf(m.bought) })); selectSkin(m.bought); }
+        else renderPicker();
+        if (!$('shopModal').classList.contains('hidden')) renderShop();
         break;
       case 'bal':
         $('balance').textContent = usd(m.bal);
@@ -293,7 +350,7 @@
       case 'init':
         myId = m.id; baseR = m.wr; ringR = m.wr; alive = true; mode = m.mode; inQueue = false;
         snaps.length = 0; foods.clear(); eatAnims.length = 0; clockOffset = null; sentAngle = null;
-        for (const id of ['menu', 'death', 'queue', 'roomsModal', 'walletModal']) show(id, false);
+        for (const id of ['menu', 'death', 'queue', 'roomsModal', 'walletModal', 'shopModal']) show(id, false);
         show('hud');
         // đưa khung game vào giữa màn hình khi bắt đầu chơi
         const rc = wrap.getBoundingClientRect();
@@ -309,14 +366,15 @@
         break;
       case 'dead':
         alive = false;
+        if (m.coins !== undefined) setCoins(m.coins);
         setTimeout(() => {
           if (alive || (mode !== 'free' && mode !== 'paid')) return;
           if (mode === 'paid') {
             showDeath(T('eliminated'), T('place', { p: m.place }) + ' · ' + (m.by ? T('killedBy', { name: m.by }) : T('hitRing')),
               { watch: true, again: true, againLabel: T('backLobby') });
           } else {
-            showDeath(T('youDied'), T('finalLength', { m: m.mass }) + ' · ' + (m.by ? T('killedBy', { name: m.by }) : T('hitWall')),
-              { again: true });
+            showDeath(T('youDied'), T('finalLength', { m: m.mass }) + ' · ' + (m.by ? T('killedBy', { name: m.by }) : T('hitWall'))
+              + (m.earned > 0 ? ' · 🪙 ' + T('coinsEarned', { n: num(m.earned) }) : ''), { again: true });
           }
         }, 1200);
         break;

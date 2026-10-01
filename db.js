@@ -99,7 +99,20 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS posts_pub ON posts (status, lang, published_at);
   INSERT OR IGNORE INTO accounts (id, token_hash, balance, created_at) VALUES (0, 'HOUSE', 0, 0);
+
+  -- cửa hàng mẫu rắn: xu kiếm được khi chơi miễn phí (không liên quan số dư USDT), mẫu đã mua
+  CREATE TABLE IF NOT EXISTS owned_skins (
+    account_id INTEGER NOT NULL,
+    skin INTEGER NOT NULL,
+    price INTEGER NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (account_id, skin)
+  );
 `);
+// DB cũ chưa có cột xu thì thêm vào
+if (!db.prepare('PRAGMA table_info(accounts)').all().some(c => c.name === 'coins')) {
+  db.exec('ALTER TABLE accounts ADD COLUMN coins INTEGER NOT NULL DEFAULT 0 CHECK (coins >= 0)');
+}
 
 const q = {
   byToken: db.prepare('SELECT id, balance FROM accounts WHERE token_hash = ?'),
@@ -117,6 +130,11 @@ const q = {
   matchStart: db.prepare("INSERT INTO matches (ref, stake, players, pot, status, started_at) VALUES (?, ?, ?, ?, 'playing', ?)"),
   matchEnd: db.prepare("UPDATE matches SET fee = ?, prize = ?, winner_account = ?, status = 'settled', ended_at = ? WHERE id = ?"),
   withdrawal: db.prepare("INSERT INTO withdrawals (account_id, amount, address, status, created_at) VALUES (?, ?, ?, 'pending', ?)"),
+  coins: db.prepare('SELECT coins FROM accounts WHERE id = ?'),
+  addCoins: db.prepare('UPDATE accounts SET coins = coins + ? WHERE id = ? AND coins + ? >= 0'),
+  owned: db.prepare('SELECT skin FROM owned_skins WHERE account_id = ? ORDER BY skin'),
+  owns: db.prepare('SELECT 1 FROM owned_skins WHERE account_id = ? AND skin = ?'),
+  own: db.prepare('INSERT INTO owned_skins (account_id, skin, price, created_at) VALUES (?, ?, ?, ?)'),
 };
 
 const hashToken = t => crypto.createHash('sha256').update(t).digest('hex');
@@ -243,6 +261,28 @@ module.exports = {
         return Number(q.withdrawal.run(accountId, amount, address, Date.now()).lastInsertRowid);
       });
     } catch (e) { if (e.message === 'INSUFFICIENT_FUNDS') return null; throw e; }
+  },
+
+  // ---------------------------------------------------------------- xu & cửa hàng mẫu rắn
+  coins(accountId) {
+    const row = q.coins.get(accountId);
+    return row ? Number(row.coins) : 0;
+  },
+  // Cộng xu, trả về số xu mới.
+  addCoins(accountId, n) {
+    q.addCoins.run(n, accountId, n);
+    return this.coins(accountId);
+  },
+  ownedSkins(accountId) { return q.owned.all(accountId).map(r => Number(r.skin)); },
+  ownsSkin(accountId, skin) { return !!q.owns.get(accountId, skin); },
+  // Trừ xu + ghi mẫu đã mua trong một giao dịch. Trả về 'ok' | 'owned' | 'noCoins'.
+  buySkin(accountId, skin, price) {
+    return tx(() => {
+      if (q.owns.get(accountId, skin)) return 'owned';
+      if (q.addCoins.run(-price, accountId, -price).changes !== 1) return 'noCoins';
+      q.own.run(accountId, skin, price, Date.now());
+      return 'ok';
+    });
   },
 
   // ---------------------------------------------------------------- thống kê & cài đặt

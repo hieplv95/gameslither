@@ -122,6 +122,9 @@ module.exports = {
     'skinDesc.4': 'Tinh vân tím hồng và những ngôi sao lấp lánh.',
     'skinDesc.5': 'Rắn một màu có sọc, chọn 1 trong 12 màu yêu thích.',
     skinAria: 'Mẫu rắn {name}',
+    coins: 'xu', shop: 'Cửa hàng', shopTitle: 'Cửa hàng skin',
+    shopIntro: 'Kiếm xu khi chơi miễn phí: +1 xu cho mỗi {per} độ dài đạt được và +{kill} xu cho mỗi con rắn bạn hạ gục. Dùng xu để mua skin cờ các quốc gia.',
+    buy: 'Mua', use: 'Dùng', inUse: 'Đang dùng', bought: 'Đã mở khoá {name}!', coinsEarned: '+{n} xu',
   },
   blog: {
     nav: 'Blog',
@@ -151,5 +154,6 @@ module.exports = {
     minWd: 'Rút tối thiểu {min} USDT.', badAddr: 'Địa chỉ ví không hợp lệ (dạng 0x…).',
     wdInPaid: 'Không thể rút khi đang ở phòng mất phí.', noFunds2: 'Số dư không đủ.',
     wdOk: 'Đã tạo lệnh rút #{id}: {amount} USDT. Lệnh đang chờ xử lý.', demoMax: 'Số dư thử nghiệm tối đa 100 USDT.',
+    noCoins: 'Không đủ xu.',
   },
 };

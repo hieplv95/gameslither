@@ -122,6 +122,9 @@ module.exports = {
     'skinDesc.4': 'Nébuleuses roses et violettes parsemées d’étoiles scintillantes.',
     'skinDesc.5': 'Serpent rayé d’une seule couleur — choisissez parmi 12 couleurs.',
     skinAria: 'Skin de serpent {name}',
+    coins: 'pièces', shop: 'Boutique', shopTitle: 'Boutique de skins',
+    shopIntro: 'Gagnez des pièces en partie gratuite : +1 tous les {per} de longueur atteints et +{kill} pour chaque serpent éliminé. Dépensez-les en skins aux drapeaux des pays.',
+    buy: 'Acheter', use: 'Utiliser', inUse: 'Utilisé', bought: '{name} débloqué !', coinsEarned: '+{n} pièces',
   },
   blog: {
     nav: 'Blog',
@@ -151,5 +154,6 @@ module.exports = {
     minWd: 'Retrait minimum : {min} USDT.', badAddr: 'Adresse de portefeuille invalide (doit commencer par 0x…).',
     wdInPaid: 'Impossible de retirer pendant un salon payant.', noFunds2: 'Solde insuffisant.',
     wdOk: 'Retrait n° {id} de {amount} USDT créé, en attente de validation.', demoMax: 'Le solde de test est limité à 100 USDT.',
+    noCoins: 'Pas assez de pièces.',
   },
 };
