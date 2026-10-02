@@ -368,7 +368,8 @@
   }
 
   function renderCaps(c) {
-    const IMG = { openai: 'Ảnh: AI vẽ (OpenAI)', pexels: 'Ảnh: kho ảnh Pexels', svg: 'Ảnh: ảnh bìa tự vẽ (thêm OPENAI_API_KEY hoặc PEXELS_API_KEY để có ảnh đẹp hơn)' };
+    const IMG = { vertex: 'Ảnh: AI vẽ (Google Vertex AI) + logo', openai: 'Ảnh: AI vẽ (OpenAI) + logo', pexels: 'Ảnh: kho ảnh Pexels',
+      svg: 'Ảnh: ảnh bìa tự vẽ (thêm VERTEX_KEY_FILE, OPENAI_API_KEY hoặc PEXELS_API_KEY để có ảnh đẹp hơn)' };
     $('caps').textContent = c.text ? `Chữ: ${c.model} · ${IMG[c.image]}` : IMG[c.image];
     show('noKey', !c.text);
     $('genBtn').disabled = $('suggest').disabled = !c.text;
@@ -376,7 +377,7 @@
     const noImg = c.image === 'svg';
     if (noImg) $('gImages').value = '1';
     $('gImages').disabled = noImg;
-    $('gImages').title = noImg ? 'Cần OPENAI_API_KEY hoặc PEXELS_API_KEY để có ảnh trong bài' : '';
+    $('gImages').title = noImg ? 'Cần VERTEX_KEY_FILE, OPENAI_API_KEY hoặc PEXELS_API_KEY để có ảnh trong bài' : '';
     show('imgHint', noImg);
   }
 

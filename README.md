@@ -72,7 +72,16 @@ File cấu hình: `deploy/nginx-gameslither.conf`, `deploy/gameslither.service`.
   2. Bấm 1 gợi ý hoặc tự nhập chủ đề/từ khoá, chọn độ dài, giọng văn, số ảnh, yêu cầu thêm → **✍️ Viết bài**. Mất khoảng 1–3 phút, chạy nền (có thể viết tối đa 3 bài cùng lúc).
   3. Bài lưu dạng **bản nháp** (hoặc đăng ngay nếu tick ô). Mở bài để đọc lại, sửa Markdown, đổi slug/mô tả/ảnh bìa/FAQ, **Xem trước**, rồi đổi trạng thái sang **Đã đăng**.
 - Chữ do Claude viết (`ANTHROPIC_API_KEY`, model `BLOG_MODEL`, mặc định `claude-opus-5`). Chỉ dùng đúng key này — tính phí theo token vào tài khoản API (console.anthropic.com), không dùng gói Claude Pro/Max. Yêu cầu gửi kèm `fallbacks: "default"`: nếu model chính từ chối, API tự chạy lại bằng model dự phòng.
-- Ảnh: có `OPENAI_API_KEY` → AI vẽ ảnh minh hoạ; có `PEXELS_API_KEY` → ảnh kho Pexels (tự ghi nguồn); không có → chỉ tạo ảnh bìa SVG tự vẽ (Facebook/Zalo không hiển thị SVG khi chia sẻ — nên dùng 1 trong 2 key trên hoặc tự tải ảnh bìa lên).
+- Ảnh: có `VERTEX_KEY_FILE` → Gemini vẽ ảnh qua Vertex AI (Google Cloud); có `OPENAI_API_KEY` → AI vẽ ảnh minh hoạ; có `PEXELS_API_KEY` → ảnh kho Pexels (tự ghi nguồn); không có → chỉ tạo ảnh bìa SVG tự vẽ (Facebook/Zalo không hiển thị SVG khi chia sẻ — nên dùng 1 trong các key trên hoặc tự tải ảnh bìa lên).
+- Ảnh do AI vẽ (Vertex/OpenAI) được **đóng logo GameSlither** ở góc dưới phải và lưu dạng WebP. Logo ở `assets/logo-badge.svg`; sửa xong chạy `node assets/make-logo.js` (trên máy có font) để dựng lại `logo-badge.png`. Tắt bằng `BLOG_IMAGE_LOGO=0`.
+- **Kết nối Vertex AI** (dùng được credit dùng thử Google Cloud; Gemini API key của AI Studio thì không):
+  1. Google Cloud Console → chọn project → bật **Vertex AI API** (`aiplatform.googleapis.com`).
+  2. IAM & Admin → Service Accounts → tạo tài khoản (vd. `gameslither-images`), cấp vai trò **Vertex AI User**.
+  3. Mở tài khoản đó → Keys → Add key → Create new key → **JSON** → tải file về.
+  4. Đưa file lên VPS: `/opt/gameslither/vertex-key.json`, rồi `sudo chown gameslither /opt/gameslither/vertex-key.json && sudo chmod 600 /opt/gameslither/vertex-key.json`.
+  5. Thêm vào `.env`: `VERTEX_KEY_FILE=/opt/gameslither/vertex-key.json` → `sudo systemctl restart gameslither`.
+  6. Thử ở trang quản trị → Blog → mở 1 bài → nút tạo ảnh AI; lỗi (sai quyền, sai tên model…) hiện ngay trên màn hình.
+  Model mặc định `gemini-3.1-flash-image`; đổi bằng `VERTEX_IMAGE_MODEL` (rẻ hơn: `gemini-3.1-flash-lite-image`, đẹp hơn: `gemini-3-pro-image`).
 - Ảnh lưu trong thư mục `media/` (không đưa lên git). Trên VPS được sao lưu mỗi Chủ nhật vào `/var/backups/gameslither/media-*.tgz`.
 - Nên đọc lại bài trước khi đăng: AI có thể viết sai chi tiết. Không nên đăng hàng loạt bài tự động không qua kiểm duyệt — Google đánh giá thấp nội dung hàng loạt kém chất lượng.
 

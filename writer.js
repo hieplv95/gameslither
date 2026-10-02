@@ -1,15 +1,22 @@
 'use strict';
 // Công cụ viết bài tự động cho blog: gợi ý chủ đề + viết bài chuẩn SEO bằng Claude, kèm ảnh.
 // Chữ: Claude API (ANTHROPIC_API_KEY). Ảnh, theo thứ tự ưu tiên:
-//   1. OPENAI_API_KEY → ảnh minh hoạ do AI vẽ (gpt-image)
-//   2. PEXELS_API_KEY → ảnh kho miễn phí từ Pexels (có ghi nguồn)
-//   3. không có key nào → ảnh bìa SVG tự vẽ (tiêu đề + hình rắn), không có ảnh trong bài
+//   1. VERTEX_KEY_FILE → ảnh do Gemini vẽ qua Vertex AI (Google Cloud, khoá service account dạng JSON)
+//   2. OPENAI_API_KEY → ảnh minh hoạ do AI vẽ (gpt-image)
+//   3. PEXELS_API_KEY → ảnh kho miễn phí từ Pexels (có ghi nguồn)
+//   4. không có key nào → ảnh bìa SVG tự vẽ (tiêu đề + hình rắn), không có ảnh trong bài
+// Ảnh do AI vẽ được đóng logo GameSlither ở góc dưới phải (BLOG_IMAGE_LOGO=0 để tắt).
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
 const Anthropic = require('@anthropic-ai/sdk');
 const db = require('./db');
 const blog = require('./blog');
 
 const MODEL = process.env.BLOG_MODEL || 'claude-opus-5';
 const OPENAI_IMAGE_MODEL = process.env.OPENAI_IMAGE_MODEL || 'gpt-image-1';
+const VERTEX_IMAGE_MODEL = process.env.VERTEX_IMAGE_MODEL || 'gemini-3.1-flash-image';
+const VERTEX_LOCATION = process.env.VERTEX_LOCATION || 'global';
 let client = null;
 // Chỉ dùng đúng ANTHROPIC_API_KEY trong .env (tính phí vào tài khoản API của key đó).
 // Tắt hẳn các nguồn đăng nhập khác của SDK (ANTHROPIC_AUTH_TOKEN, hồ sơ `ant auth login` trên máy)
@@ -23,7 +30,8 @@ function capabilities() {
   return {
     text: !!process.env.ANTHROPIC_API_KEY,
     model: MODEL,
-    image: process.env.OPENAI_API_KEY ? 'openai' : process.env.PEXELS_API_KEY ? 'pexels' : 'svg',
+    image: process.env.VERTEX_KEY_FILE ? 'vertex' : process.env.OPENAI_API_KEY ? 'openai'
+      : process.env.PEXELS_API_KEY ? 'pexels' : 'svg',
   };
 }
 
@@ -210,7 +218,7 @@ function normalizeArticle(r, L, nImages) {
 // ---------------------------------------------------------------- ảnh
 const STYLE = 'Style: polished digital illustration for a gaming blog, vibrant neon green, cyan and gold glow on a deep dark-navy background, arcade .io snake game vibe. Absolutely no text, letters, numbers, logos or watermarks.';
 
-async function openaiImage(prompt, slug) {
+async function openaiImage(prompt) {
   const res = await fetch('https://api.openai.com/v1/images/generations', {
     method: 'POST',
     headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, 'Content-Type': 'application/json' },
@@ -221,7 +229,77 @@ async function openaiImage(prompt, slug) {
   if (!res.ok) throw new Error(`OpenAI: ${(j.error && j.error.message) || res.status}`);
   const b64 = j.data && j.data[0] && j.data[0].b64_json;
   if (!b64) throw new Error('OpenAI không trả về ảnh');
-  return { src: blog.saveMedia(Buffer.from(b64, 'base64'), 'webp', slug), credit: '' };
+  return Buffer.from(b64, 'base64');
+}
+
+// ---- Vertex AI: khoá service account (JSON) → access token (1 giờ, ký JWT bằng private key) → Gemini vẽ ảnh
+let vertexKey = null, vertexToken = null;
+function vertexCreds() {
+  if (!vertexKey) {
+    let k;
+    try { k = JSON.parse(fs.readFileSync(process.env.VERTEX_KEY_FILE, 'utf8')); }
+    catch (e) { throw new Error(`Không đọc được VERTEX_KEY_FILE (${e.code || e.message})`); }
+    if (!k.client_email || !k.private_key) throw new Error('VERTEX_KEY_FILE không phải khoá service account dạng JSON.');
+    vertexKey = k;
+  }
+  return vertexKey;
+}
+async function vertexAccessToken() {
+  if (vertexToken && vertexToken.exp > Date.now() + 60_000) return vertexToken.value;
+  const k = vertexCreds(), now = Math.floor(Date.now() / 1000);
+  const tokenUri = k.token_uri || 'https://oauth2.googleapis.com/token';
+  const part = o => Buffer.from(JSON.stringify(o)).toString('base64url');
+  const unsigned = `${part({ alg: 'RS256', typ: 'JWT' })}.${part({
+    iss: k.client_email, scope: 'https://www.googleapis.com/auth/cloud-platform', aud: tokenUri, iat: now, exp: now + 3600 })}`;
+  const sig = crypto.createSign('RSA-SHA256').update(unsigned).sign(k.private_key, 'base64url');
+  const res = await fetch(tokenUri, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer', assertion: `${unsigned}.${sig}` }),
+    signal: AbortSignal.timeout(30_000),
+  });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok || !j.access_token) throw new Error(`Google: đăng nhập bằng service account lỗi (${j.error_description || j.error || res.status})`);
+  vertexToken = { value: j.access_token, exp: Date.now() + (j.expires_in || 3600) * 1000 };
+  return vertexToken.value;
+}
+async function vertexImage(prompt) {
+  const k = vertexCreds();
+  const project = process.env.VERTEX_PROJECT || k.project_id;
+  const host = VERTEX_LOCATION === 'global' ? 'aiplatform.googleapis.com' : `${VERTEX_LOCATION}-aiplatform.googleapis.com`;
+  const url = `https://${host}/v1/projects/${project}/locations/${VERTEX_LOCATION}/publishers/google/models/${VERTEX_IMAGE_MODEL}:generateContent`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${await vertexAccessToken()}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ role: 'user', parts: [{ text: `${prompt}\n\n${STYLE}` }] }],
+      generationConfig: { responseModalities: ['IMAGE'], imageConfig: { aspectRatio: '3:2' } },
+    }),
+    signal: AbortSignal.timeout(180_000),
+  });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(`Vertex AI (${VERTEX_IMAGE_MODEL}): ${(j.error && j.error.message) || res.status}`);
+  const c = j.candidates && j.candidates[0];
+  const img = ((c && c.content && c.content.parts) || []).find(p => p.inlineData && p.inlineData.data);
+  if (!img) throw new Error(`Vertex AI không trả về ảnh (${(j.promptFeedback && j.promptFeedback.blockReason) || (c && c.finishReason) || 'không rõ lý do'})`);
+  return Buffer.from(img.inlineData.data, 'base64');
+}
+
+// ---- đóng logo + lưu ảnh AI (chuyển sang WebP cho nhẹ). Thiếu thư viện sharp thì lưu nguyên ảnh gốc.
+let sharp = null;
+try { sharp = require('sharp'); } catch { /* chưa cài sharp */ }
+const LOGO_FILE = path.join(__dirname, 'assets', 'logo-badge.png');
+const extOf = b => (b[0] === 0x89 ? 'png' : b[0] === 0xff ? 'jpg' : 'webp');
+async function saveAiImage(buf, slug) {
+  if (!sharp) return blog.saveMedia(buf, extOf(buf), slug);
+  let img = sharp(buf);
+  if (process.env.BLOG_IMAGE_LOGO !== '0') {
+    const { width, height } = await img.metadata();
+    const w = Math.round(width * 0.22), margin = Math.round(width * 0.025);
+    const logo = await sharp(LOGO_FILE).resize({ width: w }).toBuffer({ resolveWithObject: true });
+    img = img.composite([{ input: logo.data, left: width - w - margin, top: height - logo.info.height - margin }]);
+  }
+  return blog.saveMedia(await img.webp({ quality: 86 }).toBuffer(), 'webp', slug);
 }
 
 async function pexelsImage(query, slug, skip = 0) {
@@ -265,10 +343,16 @@ ${shown.map((l, i) => `<text x="96" y="${(y0 + i * fs * 1.2).toFixed(0)}" font-f
 }
 
 // Tạo 1 ảnh theo nhà cung cấp đang có; lỗi thì trả null (không làm hỏng cả bài).
-async function makeImage(img, { slug, title, index = 0, cover = false }) {
+// strict: báo lỗi ra ngoài thay vì lặng lẽ dùng ảnh bìa tự vẽ (nút tạo ảnh trong trang quản trị).
+async function makeImage(img, { slug, title, index = 0, cover = false, strict = false }) {
   const kind = capabilities().image;
+  if (strict && kind !== 'svg') {
+    if (kind === 'pexels') return pexelsImage(img.query, slug, index);
+    return { src: await saveAiImage(kind === 'vertex' ? await vertexImage(img.prompt) : await openaiImage(img.prompt), slug), credit: '' };
+  }
   try {
-    if (kind === 'openai') return await openaiImage(img.prompt, slug);
+    if (kind === 'vertex') return { src: await saveAiImage(await vertexImage(img.prompt), slug), credit: '' };
+    if (kind === 'openai') return { src: await saveAiImage(await openaiImage(img.prompt), slug), credit: '' };
     if (kind === 'pexels') return await pexelsImage(img.query, slug, index);
   } catch (e) {
     console.warn(`[blog] tạo ảnh lỗi: ${e.message}`);

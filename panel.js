@@ -356,10 +356,10 @@ function handleBlog(req, res, route) {
     return readJson(req).then(async b => {
       const prompt = String(b.prompt || '').slice(0, 1500).trim();
       if (!prompt) throw new Error('Hãy nhập mô tả ảnh.');
-      if (!b.cover && writer.capabilities().image === 'svg') throw new Error('Cần OPENAI_API_KEY hoặc PEXELS_API_KEY trong .env để tạo ảnh chèn vào bài.');
+      if (!b.cover && writer.capabilities().image === 'svg') throw new Error('Cần VERTEX_KEY_FILE, OPENAI_API_KEY hoặc PEXELS_API_KEY trong .env để tạo ảnh chèn vào bài.');
       const slug = writer.toSlug(b.slug || 'anh') || 'anh';
       const img = await writer.makeImage({ prompt, query: prompt.split(/\s+/).slice(0, 4).join(' ') },
-        { slug, title: oneLine(b.title) || prompt, cover: !!b.cover });
+        { slug, title: oneLine(b.title) || prompt, cover: !!b.cover, strict: true });
       if (!img) throw new Error('Không tạo được ảnh (xem log server).');
       json(res, 200, img);
     }).catch(fail);

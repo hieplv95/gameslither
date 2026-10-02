@@ -3,3 +3,5 @@ data.sqlite*
 test.sqlite*
 .env
 media/
+vertex-key*.json
+*service-account*.json
