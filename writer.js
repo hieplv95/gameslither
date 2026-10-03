@@ -41,7 +41,8 @@ const SITE_FACTS = `GameSlither is a free, browser-based multiplayer online snak
 - Boost: hold left click, Space or the ⚡ button (boosting costs length).
 - Up to 50 players per public room, public rooms also have AI snakes; real-time leaderboard and minimap.
 - Private rooms: create a room and share its 4-character code with friends.
-- 6 snake skins: Classic (12 colors), Neon Cyber, Golden Dragon, Rainbow Candy, Jungle Python, Galaxy.
+- 6 free snake skins: Classic (12 colors), Neon Cyber, Golden Dragon, Rainbow Candy, Jungle Python, Galaxy.
+- Skin shop: free play earns coins (+1 per 10 length reached, +5 per snake taken down) to buy 23 country-flag skins (the 20 most populous countries plus the UK, Italy and Spain). Coins have no money value.
 - Works on desktop, mobile and tablet browsers; no download, no sign-up.
 - Available in 11 languages.
 GameSlither is independent and NOT affiliated with Slither.io or Lowtech Studios. "Slither io" may be used only to describe the genre/style.`;
@@ -180,7 +181,7 @@ Field requirements:
 - excerpt: 1–2 sentences (max 200 characters) for article cards.
 - content: GitHub-flavored Markdown. Do NOT include the H1 title. Start with a 2–3 sentence intro paragraph that answers the searcher's question directly. Then 4–7 "##" sections with descriptive headings (some with "###" subsections), short paragraphs, bullet or numbered lists, and at least one comparison table if it fits the topic. Use **bold** sparingly for key terms. End with a short conclusion section that invites the reader to play GameSlither (link ${L.path}). No raw HTML. Do not put an FAQ section inside content.
 - Images: provide exactly ${nImages} item(s) in "images". images[0] is the cover. ${nImages > 1 ? `Place a line containing exactly [[IMAGE 2]]${nImages > 2 ? `, [[IMAGE 3]]` : ''}${nImages > 3 ? `, [[IMAGE 4]]` : ''} on its own line inside content, each after a relevant section (not the cover).` : 'Do not put image markers in content.'}
-  - prompt: English prompt for an AI image generator: a vivid digital illustration that fits the section, stylized glowing neon snakes / arcade game art on a dark background, no text, no letters, no logos, no UI screenshots, no real people.
+  - prompt: English description of one in-game GameSlither moment that illustrates the section, seen from the game's top-down camera: how many snakes, their sizes and skins (Classic single-color, Neon Cyber, Golden Dragon, Rainbow Candy, Jungle Python, Galaxy, or a country-flag skin), what they are doing (e.g. a long snake coiling around a smaller one, two snakes racing for the pellets a defeated snake left behind, a snake boosting with a glow). Describe only the scene — the game's visual style is supplied separately. No text, UI, real people or real-world objects.
   - searchQuery: 2–4 English words for a stock photo search (e.g. "gamer playing laptop").
   - alt: descriptive alt text in ${L.name} (max 120 characters), include the keyword naturally in the first image's alt only.
 - faq: 3–5 questions real users would search in ${L.name}, with concise 1–3 sentence answers (plain text, may contain Markdown links).`;
@@ -216,7 +217,18 @@ function normalizeArticle(r, L, nImages) {
 }
 
 // ---------------------------------------------------------------- ảnh
-const STYLE = 'Style: polished digital illustration for a gaming blog, vibrant neon green, cyan and gold glow on a deep dark-navy background, arcade .io snake game vibe. Absolutely no text, letters, numbers, logos or watermarks.';
+// Mô tả đúng giao diện game thật để ảnh AI giống GameSlither, không phải tranh tưởng tượng.
+const GAME_LOOK = `It must look exactly like a real screenshot of the 2D browser game GameSlither (flat top-down camera, no perspective):
+- floor: dark charcoal-navy (#10151b) tiled with slightly lighter, evenly spaced flat hexagons
+- food: many small round glowing pellets in assorted bright colors (pink, cyan, green, yellow, purple, orange) scattered evenly
+- snakes: smooth tubes made of round overlapping segments that taper toward the tail, a thin darker outline, a soft glossy highlight along the back, a rounded head with two big round cartoon eyes (white with dark pupils)
+- skins are clean flat patterns on the body (single color with stripes, gold dragon scales, rainbow candy, neon chevrons, jungle diamonds, galaxy sparkles, or a country flag) — no realistic reptile scales, no 3D render, no fantasy lighting, no landscape
+Crisp, clean game graphics. Absolutely no text, letters, numbers, player names, UI, leaderboard, logos or watermarks.`;
+const STYLE = `Style: ${GAME_LOOK}`;
+// Ảnh mẫu dựng bằng chính code vẽ của game (assets/game-ref-*.jpg), gửi kèm cho Gemini để bám theo
+const GAME_REFS = ['game-ref-1.jpg', 'game-ref-2.jpg'].map(f => {
+  try { return fs.readFileSync(path.join(__dirname, 'assets', f)).toString('base64'); } catch { return null; }
+}).filter(Boolean);
 
 async function openaiImage(prompt) {
   const res = await fetch('https://api.openai.com/v1/images/generations', {
@@ -226,7 +238,7 @@ async function openaiImage(prompt) {
     signal: AbortSignal.timeout(180_000),
   });
   const j = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(`OpenAI: ${(j.error && j.error.message) || res.status}`);
+  if (!res.ok) throw new Error(`OpenAI ${res.status}: ${(j.error && j.error.message) || res.statusText}`);
   const b64 = j.data && j.data[0] && j.data[0].b64_json;
   if (!b64) throw new Error('OpenAI không trả về ảnh');
   return Buffer.from(b64, 'base64');
@@ -272,13 +284,17 @@ async function vertexImage(prompt) {
     method: 'POST',
     headers: { Authorization: `Bearer ${await vertexAccessToken()}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      contents: [{ role: 'user', parts: [{ text: `${prompt}\n\n${STYLE}` }] }],
+      contents: [{ role: 'user', parts: [
+        { text: `The attached images are real screenshots of the game GameSlither. Draw a NEW scene in exactly the same visual style (same floor, pellets, snake shapes, eyes, outlines and skin patterns) — do not copy their layout.\n\n${GAME_LOOK}` },
+        ...GAME_REFS.map(data => ({ inlineData: { mimeType: 'image/jpeg', data } })),
+        { text: `Scene to draw: ${prompt}` },
+      ] }],
       generationConfig: { responseModalities: ['IMAGE'], imageConfig: { aspectRatio: '3:2' } },
     }),
     signal: AbortSignal.timeout(180_000),
   });
   const j = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(`Vertex AI (${VERTEX_IMAGE_MODEL}): ${(j.error && j.error.message) || res.status}`);
+  if (!res.ok) throw new Error(`Vertex AI (${VERTEX_IMAGE_MODEL}) ${res.status}: ${(j.error && j.error.message) || res.statusText}`);
   const c = j.candidates && j.candidates[0];
   const img = ((c && c.content && c.content.parts) || []).find(p => p.inlineData && p.inlineData.data);
   if (!img) throw new Error(`Vertex AI không trả về ảnh (${(j.promptFeedback && j.promptFeedback.blockReason) || (c && c.finishReason) || 'không rõ lý do'})`);
@@ -342,23 +358,51 @@ ${shown.map((l, i) => `<text x="96" y="${(y0 + i * fs * 1.2).toFixed(0)}" font-f
   return { src: blog.saveMedia(Buffer.from(svg), 'svg', slug), credit: '' };
 }
 
-// Tạo 1 ảnh theo nhà cung cấp đang có; lỗi thì trả null (không làm hỏng cả bài).
-// strict: báo lỗi ra ngoài thay vì lặng lẽ dùng ảnh bìa tự vẽ (nút tạo ảnh trong trang quản trị).
-async function makeImage(img, { slug, title, index = 0, cover = false, strict = false }) {
+// Lỗi tạm thời (vượt giới hạn số ảnh mỗi phút 429, máy chủ bận 5xx, hết giờ chờ) → thử lại sau 20 giây, rồi 45 giây
+const RETRY_WAITS = [20_000, 45_000];
+const isTransient = e => /\b(429|500|502|503|504)\b|exhausted|unavailable|quota|rate limit|timeout|timed out|aborted/i.test(e.message);
+async function withRetry(fn) {
+  for (let k = 0; ; k++) {
+    try { return await fn(); } catch (e) {
+      if (k >= RETRY_WAITS.length || !isTransient(e)) throw e;
+      console.warn(`[blog] tạo ảnh lỗi tạm thời (${e.message}) → thử lại sau ${RETRY_WAITS[k] / 1000}s`);
+      await new Promise(r => setTimeout(r, RETRY_WAITS[k]));
+    }
+  }
+}
+
+// Tạo 1 ảnh theo nhà cung cấp đang có; lỗi thì trả null (không làm hỏng cả bài) và ghi lý do vào errors.
+// strict: báo lỗi ra ngoài ngay, không thử lại (nút tạo ảnh trong trang quản trị — Nginx chỉ chờ 60 giây).
+async function makeImage(img, { slug, title, index = 0, cover = false, strict = false, errors = null }) {
   const kind = capabilities().image;
-  if (strict && kind !== 'svg') {
+  if (kind === 'svg') return cover ? svgCover(title, slug) : null;
+  const generate = async () => {
     if (kind === 'pexels') return pexelsImage(img.query, slug, index);
-    return { src: await saveAiImage(kind === 'vertex' ? await vertexImage(img.prompt) : await openaiImage(img.prompt), slug), credit: '' };
-  }
-  try {
-    if (kind === 'vertex') return { src: await saveAiImage(await vertexImage(img.prompt), slug), credit: '' };
-    if (kind === 'openai') return { src: await saveAiImage(await openaiImage(img.prompt), slug), credit: '' };
-    if (kind === 'pexels') return await pexelsImage(img.query, slug, index);
-  } catch (e) {
+    const buf = kind === 'vertex' ? await vertexImage(img.prompt) : await openaiImage(img.prompt);
+    return { src: await saveAiImage(buf, slug), credit: '' };
+  };
+  if (strict) return generate();
+  try { return await withRetry(generate); } catch (e) {
     console.warn(`[blog] tạo ảnh lỗi: ${e.message}`);
-    if (!cover) return null;
+    if (errors) errors.push(e.message);
+    return cover ? svgCover(title, slug) : null;
   }
-  return cover ? svgCover(title, slug) : null;
+}
+
+// Ảnh đã tạo nhưng bài không có dòng [[IMAGE n]] tương ứng → chèn trước các tiêu đề "##", rải đều trong bài.
+function addMissingMarkers(content, made) {
+  const missing = [];
+  for (let k = 1; k < made.length; k++) {
+    if (made[k] && !new RegExp(`^[ \\t]*\\[\\[IMAGE ${k + 1}\\]\\][ \\t]*$`, 'm').test(content)) missing.push(k);
+  }
+  if (!missing.length) return content;
+  const lines = content.split('\n');
+  // bỏ các tiêu đề ngay sau một ảnh có sẵn, để 2 ảnh không đứng sát nhau
+  const prevLine = i => { while (--i >= 0 && !lines[i].trim()); return i >= 0 ? lines[i] : ''; };
+  const heads = lines.map((l, i) => (/^##\s/.test(l) && !/\[\[IMAGE \d\]\]/.test(prevLine(i)) ? i : -1)).filter(i => i > 0);
+  const at = missing.map((k, j) => [heads.length ? heads[Math.min(heads.length - 1, Math.max(1, Math.round((j + 1) * heads.length / (missing.length + 1))))] : lines.length, k]);
+  for (const [i, k] of at.sort((x, y) => y[0] - x[0])) lines.splice(i, 0, `[[IMAGE ${k + 1}]]`, '');
+  return lines.join('\n');
 }
 
 // ---------------------------------------------------------------- tác vụ nền
@@ -380,14 +424,18 @@ function startJob(opts) {
     job.step = 'Đang tạo ảnh…';
     const credits = [];
     let cover = '', coverAlt = '';
-    const made = [];
+    const made = [], errors = [];
     for (let i = 0; i < a.images.length; i++) {
       job.step = `Đang tạo ảnh ${i + 1}/${a.images.length}…`;
-      made[i] = await makeImage(a.images[i], { slug: a.slug, title: a.title, index: i, cover: i === 0 });
+      made[i] = await makeImage(a.images[i], { slug: a.slug, title: a.title, index: i, cover: i === 0, errors });
       if (made[i] && made[i].credit) credits.push(made[i].credit);
     }
     if (made[0]) { cover = made[0].src; coverAlt = a.images[0].alt; }
-    const content = a.content.replace(/^[ \t]*\[\[IMAGE (\d)\]\][ \t]*$/gm, (_, n) => {
+    const wanted = Math.max(1, Math.min(4, Number(opts.images) || 1));
+    const notes = [];
+    if (a.images.length < wanted) notes.push(`AI chỉ mô tả ${a.images.length}/${wanted} ảnh`);
+    if (errors.length) notes.push(`${errors.length} ảnh không tạo được: ${errors[0]}`);
+    const content = addMissingMarkers(a.content, made).replace(/^[ \t]*\[\[IMAGE (\d)\]\][ \t]*$/gm, (_, n) => {
       const k = Number(n) - 1, m = made[k];
       return m && k > 0 ? `![${a.images[k].alt.replace(/[\[\]]/g, '')}](${m.src})` : '';
     }).replace(/\n{3,}/g, '\n\n');
@@ -398,7 +446,7 @@ function startJob(opts) {
       status: opts.publish ? 'published' : 'draft',
     });
     job.status = 'done';
-    job.step = opts.publish ? 'Đã đăng bài.' : 'Đã lưu bản nháp.';
+    job.step = (opts.publish ? 'Đã đăng bài.' : 'Đã lưu bản nháp.') + (notes.length ? ` ⚠️ ${notes.join(' · ')}` : '');
   })().catch(e => {
     console.error('[blog] viết bài lỗi:', e);
     job.status = 'error';
