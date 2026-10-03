@@ -488,6 +488,7 @@
     $('eCoverAlt').value = p.cover_alt; $('eCredit').value = p.credit;
     $('eDates').textContent = id ? `Tạo: ${fmtDate(p.created_at)} · Sửa: ${fmtDate(p.updated_at)}${p.published_at ? ' · Đăng: ' + fmtDate(p.published_at) : ''}` : '';
     show('edDelete', !!id);
+    syncView();
     setCover(p.cover);
     $('faqList').textContent = '';
     for (const f of p.faq) addFaq(f[0], f[1]);
@@ -555,9 +556,13 @@
       show('edDelete');
       $('eDates').textContent = `Tạo: ${fmtDate(r.post.created_at)} · Sửa: ${fmtDate(r.post.updated_at)}${r.post.published_at ? ' · Đăng: ' + fmtDate(r.post.published_at) : ''}`;
       updateEdPreview();
+      syncView();
       toast(r.post.status === 'published' ? 'Đã lưu và đăng bài.' : wasNew ? 'Đã tạo bản nháp.' : 'Đã lưu bản nháp.');
     } catch (err) { onErr(err); }
   };
+  // Nút "Xem bài": chỉ hiện khi bài đã lưu ở trạng thái Đã đăng (theo slug/ngôn ngữ đã lưu, không theo ô đang sửa dở)
+  function syncView() { show('edView', !!(editing && editing.id && editing.status === 'published')); }
+  $('edView').onclick = () => window.open(`${langPath(editing.lang)}blog/${editing.slug}`, '_blank', 'noopener');
   $('edPreview').onclick = () => {
     if (!editing.id) return toast('Lưu bài trước rồi mới xem trước được.', true);
     window.open(`/admin/preview/${editing.id}`, '_blank', 'noopener');

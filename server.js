@@ -19,6 +19,8 @@ const FEE_PERCENT = 5;
 const STAKES = [1, 5, 10];                              // USDT
 const COUNTDOWN_MS = 10_000;
 const FREE_CAP = 50;
+// Số "đang online" ở sảnh = ONLINE_BASE + số kết nối thật (trang quản trị vẫn dùng số thật). Đặt ONLINE_BASE=0 để hiện đúng số thật.
+const ONLINE_BASE = Math.max(0, Math.floor(Number(process.env.ONLINE_BASE ?? 500)) || 0);
 const FREE_BOTS = 18;
 const MIN_WITHDRAW = 2;                                 // USDT
 const U = db.UNIT;
@@ -324,7 +326,7 @@ function lobbyInfo() {
   const tiers = PAID_ENABLED ? STAKES.map(s => [s, queues.get(s).members.size, PAID_ROOM_SIZE]) : [];
   let playing = 0;
   for (const r of paidRooms) playing += r.humanCount();
-  return { t: 'lobby', free, tiers, online: clients.size, paidPlaying: playing,
+  return { t: 'lobby', free, tiers, online: ONLINE_BASE + clients.size, paidPlaying: playing,
     paid: PAID_ENABLED, fee: FEE_PERCENT, demo: DEMO, minWithdraw: MIN_WITHDRAW };
 }
 
