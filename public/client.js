@@ -66,6 +66,62 @@
   const curSkin = () => (unlocked(mySkin) ? mySkin : Skins.CLASSIC);
   const look = () => ({ skin: curSkin(), hue: myHue });
   const num = n => n.toLocaleString(LOCALE);
+  let ach = [];                 // mẫu thành tích: [mẫu, loại, mốc]
+  const infoCache = new Map();  // id rắn -> { name, skin, hue } (server chỉ gửi lần đầu client thấy con rắn đó)
+  const bursts = [];            // hiệu ứng nổ khi rắn chết
+  let roomCode = null, lastRun = null;
+  // Link mời: ?room=ABCD → bấm "Chơi ngay" là vào đúng phòng đó
+  let pendingRoom = (new URLSearchParams(location.search).get('room') || '').toUpperCase();
+  if (!/^[A-Z0-9]{4}$/.test(pendingRoom)) pendingRoom = '';
+  const unitFmt = unit => { try { return new Intl.NumberFormat(LOCALE, { style: 'unit', unit, unitDisplay: 'long' }); } catch { return { format: n => `${n} ${unit}` }; } };
+  const MIN_FMT = unitFmt('minute'), HOUR_FMT = unitFmt('hour');
+  const fmtMin = sec => MIN_FMT.format(Math.round(sec / 60));
+  const fmtHM = sec => { const h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60); return (h ? HOUR_FMT.format(h) + ' ' : '') + MIN_FMT.format(m); };
+  const fmtClock = sec => `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+  function copyText(s) {
+    try { return navigator.clipboard.writeText(s).then(() => true, () => false); } catch { return Promise.resolve(false); }
+  }
+
+  // ------------------------------------------------------------ âm thanh (tổng hợp bằng WebAudio, không cần file) + rung
+  let muted = lsGet('rn_mute') === '1', ac = null, acted = false, lastEat = 0;
+  for (const ev of ['pointerdown', 'keydown', 'touchstart']) addEventListener(ev, () => { acted = true; }, { once: true, capture: true });
+  function audio() {
+    if (muted || !acted) return null;   // trình duyệt chỉ cho phát tiếng sau khi người dùng đã bấm gì đó
+    if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch { return null; } }
+    if (ac.state === 'suspended') ac.resume();
+    return ac;
+  }
+  function tone(freq, dur, { type = 'sine', vol = 0.15, to, delay = 0 } = {}) {
+    const a = audio();
+    if (!a) return;
+    const t0 = a.currentTime + delay, o = a.createOscillator(), g = a.createGain();
+    o.type = type;
+    o.frequency.setValueAtTime(freq, t0);
+    if (to) o.frequency.exponentialRampToValueAtTime(to, t0 + dur);
+    g.gain.setValueAtTime(vol, t0);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    o.connect(g).connect(a.destination);
+    o.start(t0); o.stop(t0 + dur + 0.02);
+  }
+  const sfx = {
+    eat(v) {
+      const t = performance.now();
+      if (t - lastEat < 70) return;
+      lastEat = t;
+      tone(500 + Math.random() * 160 + v * 40, 0.07, { vol: 0.045, to: 900 });
+    },
+    boost() { tone(190, 0.28, { type: 'sawtooth', vol: 0.035, to: 85 }); },
+    kill() { [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.15, { type: 'triangle', vol: 0.11, delay: i * 0.07 })); },
+    die() { tone(420, 0.7, { type: 'sawtooth', vol: 0.07, to: 60 }); },
+    coin() { tone(988, 0.08, { type: 'square', vol: 0.04 }); tone(1319, 0.22, { type: 'square', vol: 0.04, delay: 0.08 }); },
+  };
+  const buzz = p => { try { if (acted && navigator.vibrate) navigator.vibrate(p); } catch { /* không hỗ trợ */ } };
+  function renderMute() {
+    $('muteBtn').textContent = muted ? '🔇' : '🔊';
+    $('muteBtn').setAttribute('aria-pressed', muted);
+  }
+  $('muteBtn').onclick = () => { muted = !muted; lsSet('rn_mute', muted ? '1' : '0'); renderMute(); };
+  renderMute();
 
   // ------------------------------------------------------------ menu
   {
@@ -133,7 +189,31 @@
       list.appendChild(item);
       shopCanvases.push([cv, i]);
     }
+    // mẫu thành tích: không bán, ghi điều kiện mở khoá
+    for (const [i, kind, n] of ach) {
+      const item = document.createElement('div');
+      item.className = 'shop-item ach' + (owned.has(i) ? ' owned' : '');
+      const cv = document.createElement('canvas');
+      const name = document.createElement('b');
+      name.textContent = Skins.nameOf(i);
+      let el;
+      if (owned.has(i)) {
+        el = document.createElement('button');
+        const using = curSkin() === i;
+        el.className = 'btn sm ghost';
+        el.textContent = using ? T('inUse') : T('use');
+        el.disabled = using;
+        el.onclick = () => selectSkin(i);
+      } else {
+        el = document.createElement('small');
+        el.textContent = '🔒 ' + achText(kind, n);
+      }
+      item.append(cv, name, el);
+      list.appendChild(item);
+      shopCanvases.push([cv, i]);
+    }
   }
+  const achText = (kind, n) => T('ach.' + kind, { n: num(n), t: fmtMin(n) });
   $('openShop').onclick = () => { renderShop(); show('shopModal'); };
   // Hàng chọn màu, chỉ hiện khi chọn mẫu Cổ điển
   const huesEl = $('hues');
@@ -151,7 +231,7 @@
   // Rắn nhỏ uốn lượn tại chỗ trong mỗi ô chọn mẫu / ô cửa hàng (ô đang ẩn có clientWidth = 0 nên bỏ qua)
   function drawSkinPreviews(t) {
     if ($('menu').classList.contains('hidden')) return;
-    for (const [cv, i] of [...skinCanvases, ...shopCanvases]) {
+    for (const [cv, i] of [...skinCanvases, ...shopCanvases, ...achCanvases]) {
       const w = cv.clientWidth, h = cv.clientHeight;
       if (!w) continue;
       if (cv.width !== Math.round(w * DPR)) { cv.width = Math.round(w * DPR); cv.height = Math.round(h * DPR); }
@@ -170,19 +250,29 @@
     return n;
   };
 
+  // Thông báo nhỏ ở đáy khung game. Nhiều thông báo liền nhau thì xếp hàng hiện lần lượt (lỗi thì hiện ngay).
   let toastTimer = 0;
+  const toastQueue = [];
   function toast(msg, isErr) {
+    if (isErr) toastQueue.length = 0;
+    else if (toastTimer) { if (toastQueue.length < 4) toastQueue.push(msg); return; }
     const t = $('toast');
     t.textContent = msg;
     t.className = isErr ? 'err' : '';
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => t.classList.add('hidden'), 3500);
+    toastTimer = setTimeout(() => {
+      toastTimer = 0;
+      t.classList.add('hidden');
+      if (toastQueue.length) toast(toastQueue.shift());
+    }, toastQueue.length ? 2500 : 3500);
   }
 
+  const MODALS = ['roomsModal', 'walletModal', 'shopModal', 'missionsModal', 'hofModal', 'accountModal'];
   function showLobby(msg) {
     mode = null; alive = false; inQueue = false;
-    for (const id of ['death', 'hud', 'queue', 'roomsModal', 'walletModal', 'shopModal']) show(id, false);
+    for (const id of ['death', 'hud', 'queue', ...MODALS]) show(id, false);
     show('menu');
+    renderInvite();
     $('status').textContent = msg || '';
     snaps.length = 0;
   }
@@ -193,8 +283,13 @@
   function connect() {
     $('status').textContent = T('connecting');
     ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host);
+    ws.binaryType = 'arraybuffer';
     ws.onopen = () => { $('status').textContent = ''; sendMsg({ t: 'hello', token: lsGet('rn_token'), lang: LANG }); };
-    ws.onmessage = e => { let m; try { m = JSON.parse(e.data); } catch { return; } handle(m); };
+    ws.onmessage = e => {
+      if (typeof e.data !== 'string') { onState(decodeState(e.data)); return; }
+      let m; try { m = JSON.parse(e.data); } catch { return; }
+      handle(m);
+    };
     ws.onclose = () => {
       ws = null;
       showLobby(T('disconnected'));
@@ -203,8 +298,61 @@
   }
   connect();
 
+  // Gói trạng thái nhị phân — cấu trúc ghi ở room.js (phần "gói trạng thái nhị phân")
+  const utf8 = new TextDecoder();
+  function decodeState(buf) {
+    const v = new DataView(buf);
+    let o = 1;
+    const u8 = () => v.getUint8(o++), i8 = () => v.getInt8(o++);
+    const u16 = () => { const x = v.getUint16(o, true); o += 2; return x; };
+    const i16 = () => { const x = v.getInt16(o, true); o += 2; return x; };
+    const u32 = () => { const x = v.getUint32(o, true); o += 4; return x; };
+    const ts = v.getFloat64(o, true); o += 8;
+    const vx = i16(), vy = i16(), vr = u16(), wr = u16();
+    const m = v.getInt32(o, true); o += 4;
+    const sn = [];
+    for (let k = u16(); k > 0; k--) {
+      const id = u32(), fl = u8(), r = u16() / 10, ang = i16() / 10000;
+      if (fl & 2) {
+        const skin = u8(), hue = u16(), len = u8();
+        infoCache.set(id, { name: utf8.decode(new Uint8Array(buf, o, len)), skin, hue });
+        o += len;
+      }
+      const info = infoCache.get(id) || { name: '', skin: 0, hue: 0 };
+      const n = u16(), pts = new Array(n * 2);
+      let x = i16(), y = i16();
+      pts[0] = x; pts[1] = y;
+      for (let j = 1; j < n; j++) {
+        if (fl & 4) { x = i16(); y = i16(); } else { x += i8(); y += i8(); }
+        pts[j * 2] = x; pts[j * 2 + 1] = y;
+      }
+      sn.push({ id, name: info.name, skin: info.skin, hue: info.hue, r, boost: fl & 1, ang, pts });
+    }
+    const fa = [], fr = [];
+    for (let k = u16(); k > 0; k--) fa.push(u32(), i16(), i16(), u8(), u16());
+    for (let k = u16(); k > 0; k--) fr.push(u32(), u32());
+    return { ts, vx, vy, vr, wr, m: m < 0 ? undefined : m, sn, fa, fr };
+  }
+
   // ------------------------------------------------------------ lobby actions
-  $('play').onclick = () => sendMsg({ t: 'joinFree', name: myName(), ...look() });
+  function renderInvite() {
+    $('inviteInfo').textContent = pendingRoom ? T('invited', { code: pendingRoom }) : '';
+    show('inviteInfo', !!pendingRoom);
+  }
+  renderInvite();
+  $('play').onclick = () => {
+    if (pendingRoom) {
+      sendMsg({ t: 'joinFree', code: pendingRoom, name: myName(), ...look() });
+      pendingRoom = '';
+      renderInvite();
+      try { history.replaceState(null, '', location.pathname + location.hash); } catch { /* ignore */ }
+    } else sendMsg({ t: 'joinFree', name: myName(), ...look() });
+  };
+  $('inviteBtn').onclick = () => {
+    if (!roomCode) return;
+    const link = `${location.origin}${location.pathname}?room=${roomCode}`;
+    copyText(link).then(ok => toast(ok ? T('inviteCopied') : link));
+  };
   $('name').addEventListener('keydown', e => { if (e.key === 'Enter') $('play').click(); });
   $('pickRoom').onclick = () => { renderRooms(); show('roomsModal'); };
   $('joinCode').onclick = () => {
@@ -285,6 +433,96 @@
     }
   }
 
+  // ------------------------------------------------------------ nhiệm vụ, quà đăng nhập, thành tích
+  const achCanvases = [];
+  $('openMissions').onclick = () => { sendMsg({ t: 'missions' }); show('missionDot', false); show('missionsModal'); };
+  const missionText = m => T('m.' + m.kind, { n: num(m.n), t: fmtMin(m.n) });
+  function renderMissions(d) {
+    const ul = $('missionList');
+    ul.textContent = '';
+    d.list.forEach((m, i) => {
+      const done = d.prog.done.includes(i), cur = Math.min(m.n, d.prog[m.kind] || 0);
+      const li = document.createElement('li');
+      if (done) li.className = 'done';
+      const top = document.createElement('div');
+      const label = document.createElement('span');
+      label.textContent = (done ? '✅ ' : '') + missionText(m);
+      const reward = document.createElement('b');
+      reward.textContent = `🪙 ${num(m.reward)}`;
+      top.append(label, reward);
+      const bar = document.createElement('div');
+      bar.className = 'mbar';
+      const fill = document.createElement('i');
+      fill.style.width = (done ? 100 : cur / m.n * 100) + '%';
+      bar.appendChild(fill);
+      const val = document.createElement('small');
+      val.textContent = m.kind === 'time' ? `${fmtClock(done ? m.n : cur)} / ${fmtClock(m.n)}` : `${num(done ? m.n : cur)} / ${num(m.n)}`;
+      li.append(top, bar, val);
+      ul.appendChild(li);
+    });
+    $('missionReset').textContent = T('missionsReset', { t: fmtHM(d.reset) });
+    // quà đăng nhập 7 ngày, ngày đã nhận được tô sáng
+    const row = $('streakRow');
+    row.textContent = '';
+    const today = d.streak ? ((d.streak - 1) % d.rewards.length) + 1 : 0;
+    d.rewards.forEach((r, i) => {
+      const box = document.createElement('div');
+      box.className = 'sday' + (i < today ? ' got' : '') + (i === today - 1 ? ' today' : '');
+      const a = document.createElement('small'); a.textContent = T('streakDay', { n: i + 1 });
+      const b = document.createElement('b'); b.textContent = `🪙${r}`;
+      box.append(a, b);
+      row.appendChild(box);
+    });
+    const al = $('achList');
+    al.textContent = '';
+    achCanvases.length = 0;
+    for (const [i, kind, n] of ach) {
+      const li = document.createElement('li');
+      li.className = 'ach-row' + (owned.has(i) ? ' done' : '');
+      const cv = document.createElement('canvas');
+      const txt = document.createElement('div');
+      const b = document.createElement('b'); b.textContent = Skins.nameOf(i);
+      const s = document.createElement('small'); s.textContent = (owned.has(i) ? '✅ ' : '🔒 ') + achText(kind, n);
+      txt.append(b, s);
+      li.append(cv, txt);
+      al.appendChild(li);
+      achCanvases.push([cv, i]);
+    }
+  }
+
+  // ------------------------------------------------------------ bảng vàng
+  let hof = null, hofTab = 'week';
+  $('openHof').onclick = () => { sendMsg({ t: 'hof' }); show('hofModal'); renderHof(); };
+  for (const b of document.querySelectorAll('[data-hof]')) b.onclick = () => { hofTab = b.dataset.hof; renderHof(); };
+  function renderHof() {
+    for (const b of document.querySelectorAll('[data-hof]')) b.classList.toggle('on', b.dataset.hof === hofTab);
+    const ol = $('hofList');
+    ol.textContent = '';
+    const rows = hof ? hof[hofTab] : [];
+    if (hof && !rows.length) { const li = document.createElement('li'); li.className = 'empty'; li.textContent = T('hofEmpty'); ol.appendChild(li); }
+    rows.forEach(([name, len, kills], i) => {
+      const li = document.createElement('li');
+      const medal = document.createElement('i'); medal.textContent = ['🥇', '🥈', '🥉'][i] || `${i + 1}.`;
+      const n = document.createElement('span'); n.className = 'n'; n.textContent = name;
+      const k = document.createElement('small'); k.textContent = `⚔ ${num(kills)}`;
+      const m = document.createElement('b'); m.textContent = num(len);
+      li.append(medal, n, k, m);
+      ol.appendChild(li);
+    });
+  }
+
+  // ------------------------------------------------------------ tài khoản: mã khôi phục
+  let restoring = false;
+  $('openAccount').onclick = () => { show('codeBox', false); show('accountModal'); };
+  $('makeCode').onclick = () => sendMsg({ t: 'recoveryCode' });
+  $('copyCode').onclick = () => copyText($('codeText').textContent).then(ok => { if (ok) toast(T('copied')); });
+  $('restoreBtn').onclick = () => {
+    const code = $('restoreCode').value.trim();
+    if (!code) return;
+    restoring = true;
+    sendMsg({ t: 'recover', code });
+  };
+
   // ------------------------------------------------------------ queue / result
   $('qLeave').onclick = () => sendMsg({ t: 'leaveQueue' });
   $('again').onclick = () => {
@@ -294,16 +532,107 @@
   };
   $('toMenu').onclick = () => { sendMsg({ t: 'leave' }); showLobby(); };
   $('watch').onclick = () => { show('death', false); show('hud'); };
+  $('shareBtn').onclick = () => shareRun();
 
+  // opts: { again, againLabel, watch, stats: [[nhãn, giá trị]], extra: [dòng], share }
   function showDeath(title, text, opts) {
     $('deathTitle').textContent = title;
     $('deathText').textContent = text;
     $('again').textContent = opts.againLabel || T('playAgain');
+    const st = $('deathStats');
+    st.textContent = '';
+    for (const [label, value] of opts.stats || []) {
+      const d = document.createElement('div');
+      const b = document.createElement('b'); b.textContent = value;
+      const s = document.createElement('span'); s.textContent = label;
+      d.append(b, s);
+      st.appendChild(d);
+    }
+    show('deathStats', !!(opts.stats && opts.stats.length));
+    const ex = $('deathExtra');
+    ex.textContent = '';
+    for (const line of opts.extra || []) { const p = document.createElement('p'); p.textContent = line; ex.appendChild(p); }
     show('again', !!opts.again);
     show('watch', !!opts.watch);
+    show('shareBtn', !!opts.share);
     show('toMenu', !opts.againLabel);
     show('death');
   }
+
+  // Ảnh kết quả 1200×630 để khoe lên mạng xã hội: điện thoại mở bảng chia sẻ, máy tính tải ảnh về + chép sẵn lời mời
+  async function shareRun() {
+    const r = lastRun;
+    if (!r) return;
+    const cv = document.createElement('canvas');
+    cv.width = 1200; cv.height = 630;
+    const g = cv.getContext('2d');
+    const bg = g.createLinearGradient(0, 0, 1200, 630);
+    bg.addColorStop(0, '#0b1d26'); bg.addColorStop(1, '#10151b');
+    g.fillStyle = bg; g.fillRect(0, 0, 1200, 630);
+    g.fillStyle = 'rgba(255,255,255,0.035)';
+    for (let y = 0, row = 0; y < 680; y += 52, row++) for (let x = (row % 2) * 45; x < 1250; x += 90) { g.beginPath(); g.arc(x, y, 22, 0, Math.PI * 2); g.fill(); }
+    const pts = [];
+    for (let x = 1130; x > 60; x -= 6) pts.push(x, 485 + Math.sin(x / 110) * 55);
+    const P = Skins.resampleFlat(pts, 34, Math.atan2(pts[1] - pts[3], pts[0] - pts[2]));
+    Skins.draw(g, P, curSkin(), 1, 34, P[0].a, false, myHue);
+    g.textAlign = 'left';
+    g.font = '900 64px system-ui, sans-serif';
+    g.fillStyle = '#fff'; g.fillText('Game', 70, 112);
+    g.fillStyle = '#7cff6b'; g.fillText('Slither', 70 + g.measureText('Game').width, 112);
+    g.fillStyle = '#fbbf24'; g.font = '900 150px system-ui, sans-serif'; g.fillText(num(r.peak), 66, 285);
+    g.fillStyle = '#cbd5e1'; g.font = '700 40px system-ui, sans-serif';
+    g.fillText(`${T('shareLength')}  ·  ⚔ ${num(r.kills)} ${T('shareKills')}  ·  ⏱ ${fmtClock(r.time)}`, 72, 350);
+    g.fillStyle = '#93a4b8'; g.font = '600 30px system-ui, sans-serif'; g.textAlign = 'right';
+    g.fillText(`${T('shareCta')} ${location.host}`, 1130, 600);
+    const blob = await new Promise(res => cv.toBlob(res, 'image/jpeg', 0.9));
+    if (!blob) return;
+    const text = T('shareText', { m: num(r.peak), k: num(r.kills) }), url = location.origin + location.pathname;
+    const file = new File([blob], 'gameslither.jpg', { type: 'image/jpeg' });
+    try {
+      if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], text, url }); return; }
+    } catch (e) { if (e.name === 'AbortError') return; }
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'gameslither.jpg';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    copyText(`${text} ${url}`);
+    toast(T('shareSaved'));
+  }
+
+  // ------------------------------------------------------------ dòng hạ gục, thông báo giữa màn hình, hiệu ứng nổ
+  function killFeed(ev) {
+    const feed = $('killFeed');
+    const row = document.createElement('div');
+    if (ev.kid === myId || ev.vid === myId) row.className = 'mine';
+    const k = document.createElement('b'), v = document.createElement('b');
+    k.textContent = ev.k; v.textContent = ev.v;
+    const [before, after] = T('kfKill', { k: '\u0000', v: '\u0001' }).split('\u0000');
+    const [mid, end] = after.split('\u0001');
+    row.append(before, k, mid, v, end);
+    feed.prepend(row);
+    while (feed.children.length > 4) feed.lastChild.remove();
+    setTimeout(() => row.remove(), 5000);
+  }
+  let noticeTimer = 0;
+  function notice(msg) {
+    const n = $('notice');
+    n.textContent = msg;
+    n.classList.remove('pop');
+    void n.offsetWidth;   // chạy lại hiệu ứng
+    n.classList.add('pop');
+    clearTimeout(noticeTimer);
+    noticeTimer = setTimeout(() => n.classList.remove('pop'), 1800);
+  }
+  function addBurst(ev) {
+    if (Math.hypot(ev.x - cam.x, ev.y - cam.y) > 3000) return;
+    const parts = [], n = ev.big ? 34 : 20;
+    for (let i = 0; i < n; i++) parts.push({ a: Math.random() * Math.PI * 2, sp: 90 + Math.random() * (ev.big ? 300 : 190), r: 4 + Math.random() * (ev.big ? 9 : 6) });
+    // hiện cùng lúc với hình ảnh (vốn được vẽ trễ interpDelay để nội suy)
+    bursts.push({ x: ev.x, y: ev.y, hue: ev.hue, t0: Date.now() + interpDelay, parts, ring: ev.big ? 170 : 100 });
+  }
+  const missionLines = list => (list || []).map(m => '🎯 ' + T('missionDone', { name: missionText(m), n: num(m.reward) }));
+  const skinLines = list => (list || []).map(i => '🏅 ' + T('newSkin', { name: Skins.nameOf(i) }));
 
   // ------------------------------------------------------------ messages
   function handle(m) {
@@ -311,9 +640,29 @@
       case 'acct':
         lsSet('rn_token', m.token);
         $('balance').textContent = usd(m.bal);
-        owned = new Set(m.owned); prices = new Map(m.shop); earn = m.earn;
+        owned = new Set(m.owned); prices = new Map(m.shop); earn = m.earn; ach = m.ach || [];
         setCoins(m.coins);
         renderPicker();
+        if (m.checkIn && m.checkIn.reward) { toast('🎁 ' + T('streakToday', { day: m.checkIn.day, n: num(m.checkIn.reward) })); show('missionDot'); }
+        for (const line of skinLines(m.newSkins)) toast(line);
+        if (restoring) { restoring = false; show('accountModal', false); $('restoreCode').value = ''; }
+        break;
+      case 'missions': renderMissions(m); break;
+      case 'mdone':
+        setCoins(m.coins);
+        for (const line of missionLines(m.list)) toast(line);
+        if (m.list.length) { sfx.coin(); show('missionDot'); }
+        break;
+      case 'hof': hof = m; renderHof(); break;
+      case 'recovery':
+        $('codeText').textContent = m.code;
+        show('codeBox');
+        break;
+      case 'kf':
+        if (!mode) break;
+        addBurst(m);
+        if (m.k) killFeed(m);
+        if (m.kid && m.kid === myId) { notice(T('youKilled', { name: m.v })); sfx.kill(); buzz(40); }
         break;
       case 'shop':
         owned = new Set(m.owned);
@@ -329,7 +678,7 @@
         lobby = m;
         renderLobby();
         break;
-      case 'err': toast(m.msg, true); break;
+      case 'err': restoring = false; toast(m.msg, true); break;
       case 'ok': toast(m.msg); break;
       case 'history': renderHistory(m.rows); break;
 
@@ -350,8 +699,11 @@
       case 'init':
         myId = m.id; baseR = m.wr; ringR = m.wr; alive = true; mode = m.mode; inQueue = false;
         snaps.length = 0; foods.clear(); eatAnims.length = 0; clockOffset = null; sentAngle = null;
-        for (const id of ['menu', 'death', 'queue', 'roomsModal', 'walletModal', 'shopModal']) show(id, false);
+        infoCache.clear(); bursts.length = 0; $('killFeed').textContent = '';
+        roomCode = m.mode === 'free' ? m.code : null;
+        for (const id of ['menu', 'death', 'queue', ...MODALS]) show(id, false);
         show('hud');
+        show('inviteBtn', !!roomCode);
         // đưa khung game vào giữa màn hình khi bắt đầu chơi
         const rc = wrap.getBoundingClientRect();
         if (!document.fullscreenElement && (rc.top < -2 || rc.bottom > innerHeight + 2)) wrap.scrollIntoView({ behavior: 'smooth', block: 'end' });
@@ -364,20 +716,29 @@
         renderLeaderboard();
         if (m.paid) renderPaidBar(m.paid);
         break;
-      case 'dead':
+      case 'dead': {
         alive = false;
+        sfx.die(); buzz([80, 40, 140]);
         if (m.coins !== undefined) setCoins(m.coins);
+        if (m.owned) { owned = new Set(m.owned); renderPicker(); }
+        if ((m.mdone && m.mdone.length) || (m.newSkins && m.newSkins.length)) show('missionDot');
+        lastRun = { peak: m.peak, kills: m.kills, time: m.time };
+        const stats = [[T('statLength'), num(m.peak)], [T('statKills'), num(m.kills)], [T('statTime'), fmtClock(m.time)]];
+        if (m.rank) stats.push([T('statRank'), '#' + m.rank]);
         setTimeout(() => {
           if (alive || (mode !== 'free' && mode !== 'paid')) return;
           if (mode === 'paid') {
             showDeath(T('eliminated'), T('place', { p: m.place }) + ' · ' + (m.by ? T('killedBy', { name: m.by }) : T('hitRing')),
-              { watch: true, again: true, againLabel: T('backLobby') });
+              { watch: true, again: true, againLabel: T('backLobby'), stats });
           } else {
-            showDeath(T('youDied'), T('finalLength', { m: m.mass }) + ' · ' + (m.by ? T('killedBy', { name: m.by }) : T('hitWall'))
-              + (m.earned > 0 ? ' · 🪙 ' + T('coinsEarned', { n: num(m.earned) }) : ''), { again: true });
+            if (m.earned !== undefined) stats.push([T('statCoins'), '+' + num(Math.max(0, m.earned))]);
+            const why = m.by ? T('killedBy', { name: m.by }) : T('hitWall');
+            showDeath(T('youDied'), why.charAt(0).toUpperCase() + why.slice(1),
+              { again: true, stats, share: true, extra: [...missionLines(m.mdone), ...skinLines(m.newSkins)] });
           }
         }, 1200);
         break;
+      }
       case 'result':
         alive = false;
         show('hud', false);
@@ -419,7 +780,7 @@
     interpDelay += (want - interpDelay) * (want > interpDelay ? 0.2 : 0.02);   // tăng nhanh, giảm từ từ
 
     const map = new Map();
-    for (const a of m.sn) map.set(a[0], { id: a[0], name: a[1], skin: a[2], r: a[3] / 10, boost: a[4], ang: a[5] / 100, pts: a[6], hue: a[7] });
+    for (const a of m.sn) map.set(a.id, a);
     snaps.push({ ts: m.ts, snakes: map, vr: m.vr, vx: m.vx, vy: m.vy, wr: m.wr });
     if (snaps.length > 40) snaps.shift();
 
@@ -433,6 +794,7 @@
       if (!f) continue;
       foods.delete(fr[i]);
       if (fr[i + 1]) eatAnims.push({ x: f.x, y: f.y, v: f.v, hue: f.hue, eater: fr[i + 1], t0: now });
+      if (fr[i + 1] === myId && alive) sfx.eat(f.v);
     }
     if (m.m !== undefined) myMass = m.m;
   }
@@ -440,6 +802,7 @@
   setInterval(() => {
     if (!alive || !ws || ws.readyState !== 1) return;
     if (sentAngle === null || Math.abs(angleDiff(sentAngle, mouseAngle)) > 0.015 || sentBoost !== boost) {
+      if (boost && !sentBoost && myMass > 15) sfx.boost();
       sentAngle = mouseAngle; sentBoost = boost;
       sendMsg({ t: 'in', a: Math.round(mouseAngle * 1000) / 1000, b: boost ? 1 : 0 });
     }
@@ -601,6 +964,21 @@
       if (e) { x += (e.pts[0] - a.x) * p; y += (e.pts[1] - a.y) * p; }
       const rr = foodRadius(a.v) * (1 - p) * 2.5;
       ctx.drawImage(getFoodSprite(a.hue), x - rr, y - rr, rr * 2, rr * 2);
+    }
+    for (let i = bursts.length - 1; i >= 0; i--) {
+      const b = bursts[i], p = (now - b.t0) / 750;
+      if (p >= 1) { bursts.splice(i, 1); continue; }
+      if (p < 0) continue;
+      const e = 1 - (1 - p) ** 3, spr = getFoodSprite(b.hue);
+      ctx.globalAlpha = 1 - p;
+      for (const q of b.parts) {
+        const d = q.sp * e, rr = q.r * (1 - p * 0.6) * 2.5;
+        ctx.drawImage(spr, b.x + Math.cos(q.a) * d - rr, b.y + Math.sin(q.a) * d - rr, rr * 2, rr * 2);
+      }
+      ctx.strokeStyle = `hsl(${b.hue},100%,70%)`;
+      ctx.lineWidth = 8 * (1 - p);
+      ctx.beginPath(); ctx.arc(b.x, b.y, b.ring * e + 10, 0, Math.PI * 2); ctx.stroke();
+      ctx.globalAlpha = 1;
     }
     ctx.globalCompositeOperation = 'source-over';
 

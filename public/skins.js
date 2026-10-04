@@ -547,6 +547,114 @@ window.SnakeSkins = (() => {
     }),
   );
 
+  // ------------------------------------------------------------ mẫu thành tích (29–32)
+  // Không bán: tự mở khoá khi đạt mốc (ACHIEVEMENTS ở server.js). Có hiệu ứng chuyển động + hào quang.
+  const glowEye = (ctx, e, R, look, col, core) => {
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.drawImage(glowSprite(col), e.x - R * 0.75, e.y - R * 0.75, R * 1.5, R * 1.5);
+    ctx.globalCompositeOperation = 'source-over';
+    circle(ctx, e.x, e.y, R * 0.24, core);
+    circle(ctx, e.x + Math.cos(look) * R * 0.08, e.y + Math.sin(look) * R * 0.08, R * 0.1, '#1a0500');
+  };
+  SKINS.push(
+    {
+      name: 'Inferno', outline: '#3a0800', outlineW: r => r * 0.1 + 1, aura: '#ff5a1f', glow: '#ff7a1f', gloss: 0.7,
+      body(ctx, P, a, b, t) {
+        // lửa chảy từ đầu về đuôi: màu đỏ → cam → vàng đổi theo thời gian
+        for (let i = b - 1; i >= a; i--) {
+          const p = P[i], w = Math.sin(i * 0.35 - t * 9) * 0.5 + 0.5;
+          circle(ctx, p.x, p.y, p.r + 2, `hsl(${8 + w * 38},100%,${38 + w * 18}%)`);
+        }
+        ctx.globalCompositeOperation = 'lighter';
+        for (let i = Math.max(2, a - 2); i < Math.min(b + 2, P.length); i++) {
+          if (i % 3) continue;
+          const p = P[i], [c, s] = dirOf(p), off = Math.sin(i * 1.7 + t * 6) * p.r * 0.45, g = p.r * 1.3;
+          ctx.globalAlpha = 0.35 + 0.35 * Math.abs(Math.sin(t * 5 + i));
+          ctx.drawImage(glowSprite('#ffd23f'), p.x - s * off - g / 2, p.y + c * off - g / 2, g, g);
+        }
+        ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+      },
+      head(ctx, h, t, look) {
+        for (const side of [-1, 1]) glowEye(ctx, eyePos(h, h.r, side, 0.3, 0.45), h.r, look, '#ffb21f', '#fff3b0');
+      },
+    },
+    {
+      name: 'Frost', outline: '#e8fbff', outlineW: r => r * 0.09 + 1, aura: '#7fe3ff', glow: '#a8efff', gloss: 1.6,
+      body(ctx, P, a, b, t) {
+        bodyPath(ctx, P, a, b, 0); ctx.fillStyle = '#5cc8ef'; ctx.fill();
+        // tinh thể băng hình thoi + ánh lấp lánh chạy dọc thân
+        for (let i = Math.max(2, a - 3); i < Math.min(b + 3, P.length - 1); i++) {
+          if (i % 3) continue;
+          const p = P[i], [c, s] = dirOf(p), side = (i / 3) % 2 ? 1 : -1, off = side * p.r * 0.38;
+          const cx = p.x - s * off, cy = p.y + c * off, L = p.r * 0.5, Wd = p.r * 0.26;
+          ctx.beginPath();
+          ctx.moveTo(cx + c * L, cy + s * L); ctx.lineTo(cx - s * Wd, cy + c * Wd);
+          ctx.lineTo(cx - c * L, cy - s * L); ctx.lineTo(cx + s * Wd, cy - c * Wd); ctx.closePath();
+          ctx.fillStyle = 'rgba(235,252,255,0.75)'; ctx.fill();
+        }
+        for (let i = Math.max(1, a - 2); i < Math.min(b + 2, P.length); i++) {
+          if (hash(i, 7) > 0.35) continue;
+          const p = P[i], [c, s] = dirOf(p), off = (hash(i, 8) - 0.5) * 1.4 * p.r;
+          const al = Math.max(0, Math.sin(t * 3 + hash(i, 9) * 20));
+          if (al < 0.2) continue;
+          const x = p.x - s * off, y = p.y + c * off, sz = p.r * 0.32 * al;
+          ctx.strokeStyle = `rgba(255,255,255,${al})`; ctx.lineWidth = p.r * 0.05;
+          ctx.beginPath(); ctx.moveTo(x - sz, y); ctx.lineTo(x + sz, y); ctx.moveTo(x, y - sz); ctx.lineTo(x, y + sz); ctx.stroke();
+        }
+      },
+      head(ctx, h, t, look) {
+        for (const side of [-1, 1]) roundEye(ctx, eyePos(h, h.r, side, 0.28, 0.45), h.r, look, h.r * 0.33, '#1d6fa3', '#03203a');
+      },
+    },
+    {
+      name: 'Shadow', outline: '#7a2cff', outlineW: r => r * 0.08 + 1, aura: '#6a1fff', glow: '#9b5cff', gloss: 0.5,
+      body(ctx, P, a, b, t) {
+        bodyPath(ctx, P, a, b, 0); ctx.fillStyle = '#0b0712'; ctx.fill();
+        // khói tím trôi dọc thân
+        ctx.globalCompositeOperation = 'lighter';
+        for (let i = Math.max(0, a - 6); i < Math.min(b + 6, P.length); i++) {
+          if (i % 4) continue;
+          const p = P[i], [c, s] = dirOf(p), off = Math.sin(i * 0.9 - t * 2.5) * p.r * 0.5, g = p.r * 2;
+          ctx.globalAlpha = 0.18 + 0.14 * Math.sin(t * 3 + i * 0.5);
+          ctx.drawImage(glowSprite('#7a2cff'), p.x - s * off - g / 2, p.y + c * off - g / 2, g, g);
+        }
+        ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+        ctx.strokeStyle = 'rgba(200,160,255,0.35)'; ctx.lineCap = 'round';
+        for (let i = Math.max(4, a - 2); i < Math.min(b + 2, P.length - 2); i++) {
+          if (i % 6) continue;
+          const p = P[i], [c, s] = dirOf(p), w = p.r * 0.6;
+          ctx.lineWidth = p.r * 0.08;
+          ctx.beginPath(); ctx.moveTo(p.x - s * w, p.y + c * w); ctx.lineTo(p.x + c * p.r * 0.3, p.y + s * p.r * 0.3); ctx.lineTo(p.x + s * w, p.y - c * w); ctx.stroke();
+        }
+      },
+      head(ctx, h, t, look) {
+        for (const side of [-1, 1]) glowEye(ctx, eyePos(h, h.r, side, 0.3, 0.42), h.r, look, '#ff2048', '#ff8095');
+      },
+    },
+    {
+      name: 'Aurora', outline: '#0b3b3a', outlineW: r => r * 0.09 + 1, aura: '#3dffb0', glow: '#5cffc8', gloss: 1.1,
+      body(ctx, P, a, b, t) {
+        bodyPath(ctx, P, a, b, 0); ctx.fillStyle = '#062421'; ctx.fill();
+        // dải cực quang xanh lá – tím chuyển động
+        ctx.globalCompositeOperation = 'lighter';
+        for (let i = b - 1; i >= a; i--) {
+          const p = P[i], w = Math.sin(i * 0.22 - t * 3);
+          ctx.globalAlpha = 0.55;
+          circle(ctx, p.x, p.y, p.r * (0.7 + 0.25 * w), `hsl(${150 + w * 60 + Math.sin(t + i * 0.05) * 40},100%,${45 + w * 10}%)`);
+        }
+        ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+        for (let i = Math.max(1, a - 2); i < Math.min(b + 2, P.length); i++) {
+          if (hash(i, 11) > 0.3) continue;
+          const p = P[i], [c, s] = dirOf(p), off = (hash(i, 12) - 0.5) * 1.5 * p.r;
+          circle(ctx, p.x - s * off, p.y + c * off, p.r * 0.06, `rgba(255,255,255,${0.4 + 0.6 * Math.abs(Math.sin(t * 2 + i))})`);
+        }
+      },
+      head(ctx, h, t, look) {
+        for (const side of [-1, 1]) roundEye(ctx, eyePos(h, h.r, side, 0.28, 0.45), h.r, look, h.r * 0.33, '#18a878', '#00140d');
+      },
+    },
+  );
+
   // Tên hiển thị: mẫu cờ dùng tên nước theo ngôn ngữ trang (Intl), mẫu thường lấy từ bản dịch
   let regionNames = null;
   try { regionNames = new Intl.DisplayNames([window.I18N.lang], { type: 'region' }); } catch { /* trình duyệt cũ */ }

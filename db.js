@@ -109,10 +109,50 @@ db.exec(`
     PRIMARY KEY (account_id, skin)
   );
 `);
-// DB cũ chưa có cột xu thì thêm vào
-if (!db.prepare('PRAGMA table_info(accounts)').all().some(c => c.name === 'coins')) {
-  db.exec('ALTER TABLE accounts ADD COLUMN coins INTEGER NOT NULL DEFAULT 0 CHECK (coins >= 0)');
+db.exec(`
+  -- nhiệm vụ hằng ngày: tiến độ trong ngày (giờ Việt Nam) của từng tài khoản
+  CREATE TABLE IF NOT EXISTS daily (
+    account_id INTEGER NOT NULL,
+    day TEXT NOT NULL,
+    kills INTEGER NOT NULL DEFAULT 0,       -- tổng số rắn hạ trong ngày
+    games INTEGER NOT NULL DEFAULT 0,       -- số ván đã vào
+    best_len INTEGER NOT NULL DEFAULT 0,    -- độ dài cao nhất trong 1 mạng
+    best_time INTEGER NOT NULL DEFAULT 0,   -- thời gian sống lâu nhất trong 1 mạng (giây)
+    done TEXT NOT NULL DEFAULT '',          -- số thứ tự các nhiệm vụ đã xong, vd "0,2"
+    PRIMARY KEY (account_id, day)
+  );
+  -- bảng xếp hạng tuần / mọi thời đại (chỉ phòng miễn phí, chỉ người chơi thật)
+  CREATE TABLE IF NOT EXISTS scores (
+    id INTEGER PRIMARY KEY,
+    account_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    length INTEGER NOT NULL,
+    kills INTEGER NOT NULL,
+    week TEXT NOT NULL,                     -- ngày thứ Hai đầu tuần, YYYY-MM-DD
+    ts INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS scores_week ON scores (week, length DESC);
+  CREATE INDEX IF NOT EXISTS scores_len ON scores (length DESC);
+  -- mỗi tài khoản có thể đăng nhập trên nhiều thiết bị (token thêm khi khôi phục bằng mã)
+  CREATE TABLE IF NOT EXISTS account_tokens (
+    token_hash TEXT PRIMARY KEY,
+    account_id INTEGER NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+`);
+// DB cũ chưa có các cột mới thì thêm vào
+{
+  const cols = new Set(db.prepare('PRAGMA table_info(accounts)').all().map(c => c.name));
+  const add = (name, def) => { if (!cols.has(name)) db.exec(`ALTER TABLE accounts ADD COLUMN ${name} ${def}`); };
+  add('coins', 'INTEGER NOT NULL DEFAULT 0 CHECK (coins >= 0)');
+  add('total_kills', 'INTEGER NOT NULL DEFAULT 0');
+  add('best_len', 'INTEGER NOT NULL DEFAULT 0');
+  add('best_time', 'INTEGER NOT NULL DEFAULT 0');
+  add('streak', 'INTEGER NOT NULL DEFAULT 0');        // số ngày đăng nhập liên tiếp
+  add('last_day', "TEXT NOT NULL DEFAULT ''");         // ngày đăng nhập gần nhất
+  add('recovery_hash', 'TEXT');                        // mã khôi phục tài khoản (đã băm)
 }
+db.exec('CREATE UNIQUE INDEX IF NOT EXISTS accounts_recovery ON accounts (recovery_hash)');
 
 const q = {
   byToken: db.prepare('SELECT id, balance FROM accounts WHERE token_hash = ?'),
@@ -135,13 +175,33 @@ const q = {
   owned: db.prepare('SELECT skin FROM owned_skins WHERE account_id = ? ORDER BY skin'),
   owns: db.prepare('SELECT 1 FROM owned_skins WHERE account_id = ? AND skin = ?'),
   own: db.prepare('INSERT INTO owned_skins (account_id, skin, price, created_at) VALUES (?, ?, ?, ?)'),
+  byExtraToken: db.prepare('SELECT a.id, a.balance FROM account_tokens t JOIN accounts a ON a.id = t.account_id WHERE t.token_hash = ?'),
+  addToken: db.prepare('INSERT INTO account_tokens (token_hash, account_id, created_at) VALUES (?, ?, ?)'),
+  byRecovery: db.prepare('SELECT id FROM accounts WHERE recovery_hash = ?'),
+  setRecovery: db.prepare('UPDATE accounts SET recovery_hash = ? WHERE id = ?'),
+  profile: db.prepare('SELECT total_kills, best_len, best_time, streak, last_day FROM accounts WHERE id = ?'),
+  setStreak: db.prepare('UPDATE accounts SET streak = ?, last_day = ? WHERE id = ?'),
+  addLife: db.prepare('UPDATE accounts SET total_kills = total_kills + ?, best_len = MAX(best_len, ?), best_time = MAX(best_time, ?) WHERE id = ?'),
+  dailyGet: db.prepare('SELECT kills, games, best_len, best_time, done FROM daily WHERE account_id = ? AND day = ?'),
+  dailyUpsert: db.prepare(`INSERT INTO daily (account_id, day, kills, games, best_len, best_time) VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT (account_id, day) DO UPDATE SET kills = kills + excluded.kills, games = games + excluded.games,
+      best_len = MAX(best_len, excluded.best_len), best_time = MAX(best_time, excluded.best_time)`),
+  dailyDone: db.prepare('UPDATE daily SET done = ? WHERE account_id = ? AND day = ?'),
+  addScore: db.prepare('INSERT INTO scores (account_id, name, length, kills, week, ts) VALUES (?, ?, ?, ?, ?, ?)'),
+  // Mỗi tài khoản chỉ lấy ván dài nhất (SQLite trả các cột còn lại theo đúng dòng có MAX)
+  topWeek: db.prepare('SELECT name, MAX(length) length, kills FROM scores WHERE week = ? GROUP BY account_id ORDER BY length DESC LIMIT ?'),
+  topAll: db.prepare('SELECT name, MAX(length) length, kills FROM scores GROUP BY account_id ORDER BY length DESC LIMIT ?'),
 };
+const dailyRow = r => ({ kills: Number(r?.kills || 0), games: Number(r?.games || 0), len: Number(r?.best_len || 0),
+  time: Number(r?.best_time || 0), done: r?.done ? r.done.split(',').map(Number) : [] });
 
 const hashToken = t => crypto.createHash('sha256').update(t).digest('hex');
 
 // Ngày theo giờ Việt Nam (UTC+7)
 const TZ_OFFSET_MS = 7 * 3600_000;
 const dayOf = ts => new Date(ts + TZ_OFFSET_MS).toISOString().slice(0, 10);
+// Ngày thứ Hai đầu tuần chứa ts (giờ Việt Nam)
+const weekOf = ts => { const d = new Date(ts + TZ_OFFSET_MS); return dayOf(ts - ((d.getUTCDay() + 6) % 7) * 86400_000); };
 
 const qa = {
   visit: db.prepare('INSERT INTO visits (ts, day, vid, country, device, ref) VALUES (?, ?, ?, ?, ?, ?)'),
@@ -188,7 +248,8 @@ module.exports = {
   // Trả về tài khoản ứng với token; tạo mới nếu token rỗng hoặc không tồn tại.
   login(token) {
     if (typeof token === 'string' && token.length >= 32) {
-      const row = q.byToken.get(hashToken(token));
+      const h = hashToken(token);
+      const row = q.byToken.get(h) || q.byExtraToken.get(h);
       if (row) return { id: Number(row.id), token, balance: Number(row.balance) };
     }
     const fresh = crypto.randomBytes(32).toString('hex');
@@ -283,6 +344,81 @@ module.exports = {
       q.own.run(accountId, skin, price, Date.now());
       return 'ok';
     });
+  },
+
+  // Tặng mẫu rắn (thành tích). Trả về true nếu là mẫu mới.
+  grantSkin(accountId, skin) {
+    if (q.owns.get(accountId, skin)) return false;
+    q.own.run(accountId, skin, 0, Date.now());
+    return true;
+  },
+
+  // ---------------------------------------------------------------- khôi phục tài khoản
+  // Đặt mã khôi phục mới (mã cũ hết hiệu lực). code đã được chuẩn hoá ở server.js.
+  setRecovery(accountId, code) { q.setRecovery.run(hashToken(code), accountId); },
+  // Dùng mã khôi phục: trả về { id, token } với token mới cho thiết bị này, hoặc null nếu sai mã.
+  recover(code) {
+    const row = q.byRecovery.get(hashToken(code));
+    if (!row) return null;
+    const token = crypto.randomBytes(32).toString('hex');
+    q.addToken.run(hashToken(token), row.id, Date.now());
+    return { id: Number(row.id), token };
+  },
+
+  // ---------------------------------------------------------------- hồ sơ, chuỗi đăng nhập, nhiệm vụ
+  dayOf, weekOf,
+  profile(accountId) {
+    const r = q.profile.get(accountId) || {};
+    return { kills: Number(r.total_kills || 0), len: Number(r.best_len || 0), time: Number(r.best_time || 0),
+      streak: Number(r.streak || 0), lastDay: r.last_day || '' };
+  },
+  // Gọi khi đăng nhập. Ngày mới thì cập nhật chuỗi và cộng thưởng: rewards[ngày thứ mấy trong chu kỳ - 1].
+  // Trả về { streak, day (1..rewards.length), reward (0 nếu hôm nay đã nhận) }.
+  checkIn(accountId, rewards) {
+    return tx(() => {
+      const p = this.profile(accountId), today = dayOf(Date.now());
+      const cycleDay = s => ((s - 1) % rewards.length) + 1;
+      if (p.lastDay === today) return { streak: p.streak, day: cycleDay(p.streak), reward: 0 };
+      const streak = p.lastDay === dayOf(Date.now() - 86400_000) ? p.streak + 1 : 1;
+      const reward = rewards[cycleDay(streak) - 1];
+      q.setStreak.run(streak, today, accountId);
+      q.addCoins.run(reward, accountId, reward);
+      return { streak, day: cycleDay(streak), reward };
+    });
+  },
+  // Ghi lại 1 mạng chơi (hồ sơ trọn đời).
+  recordLife(accountId, kills, len, time) { q.addLife.run(kills, len, time, accountId); },
+  daily(accountId) { return dailyRow(q.dailyGet.get(accountId, dayOf(Date.now()))); },
+  // Cộng tiến độ hôm nay (kills, games cộng dồn; len, time lấy cao nhất) rồi chấm các nhiệm vụ.
+  // missions: [{ kind: 'kills'|'games'|'len'|'time', n, reward }]. Nhiệm vụ mới xong được cộng xu ngay.
+  // Trả về { prog, newly: [chỉ số nhiệm vụ], gained }.
+  updateDaily(accountId, d, missions) {
+    return tx(() => {
+      const day = dayOf(Date.now());
+      q.dailyUpsert.run(accountId, day, d.kills || 0, d.games || 0, Math.floor(d.len || 0), Math.floor(d.time || 0));
+      const prog = dailyRow(q.dailyGet.get(accountId, day));
+      const newly = [];
+      let gained = 0;
+      missions.forEach((m, i) => {
+        if (prog.done.includes(i) || prog[m.kind] < m.n) return;
+        newly.push(i); prog.done.push(i); gained += m.reward;
+      });
+      if (newly.length) {
+        q.dailyDone.run(prog.done.join(','), accountId, day);
+        q.addCoins.run(gained, accountId, gained);
+      }
+      return { prog, newly, gained };
+    });
+  },
+
+  // ---------------------------------------------------------------- bảng xếp hạng
+  addScore(accountId, name, length, kills) {
+    const ts = Date.now();
+    q.addScore.run(accountId, name, Math.floor(length), kills, weekOf(ts), ts);
+  },
+  topScores(limit = 10) {
+    const map = r => [r.name, Number(r.length), Number(r.kills)];
+    return { week: q.topWeek.all(weekOf(Date.now()), limit).map(map), all: q.topAll.all(limit).map(map) };
   },
 
   // ---------------------------------------------------------------- thống kê & cài đặt

@@ -11,6 +11,24 @@ Hai chế độ:
 (Liên Hợp Quốc, ước tính 2025) + Vương quốc Anh, Ý, Tây Ban Nha, giá 500 xu/skin. Đổi các mức này ở đầu `server.js` (`COINS_PER_LENGTH`, `KILL_COINS`, `SKIN_PRICE`).
 Server kiểm tra quyền sở hữu: gửi số skin chưa mua sẽ bị đổi về skin Cổ điển. Mẫu vẽ cờ ở `public/skins.js`.
 
+**Giữ chân người chơi** (chỉnh các mức ở đầu `server.js`):
+- **Nhiệm vụ hằng ngày** (`MISSION_POOL`): mỗi ngày 3 nhiệm vụ giống nhau cho mọi người — luôn có "chơi N ván" + 2 trong 3 nhóm
+  hạ rắn / đạt độ dài / sống sót. Đổi lúc 0 giờ giờ Việt Nam. Xong là cộng xu ngay (kể cả khi đang chơi).
+- **Quà đăng nhập liên tiếp** (`STREAK_REWARDS`): 20 → 200 xu cho ngày 1 → 7 rồi lặp lại; bỏ 1 ngày là về ngày 1.
+- **Skin thành tích** (`ACHIEVEMENTS`, số 29–32): Hoả Ngục (độ dài 1.500 trong 1 mạng), Băng Giá (sống 10 phút), Bóng Đêm
+  (hạ 5 rắn trong 1 mạng), Cực Quang (đăng nhập 7 ngày liên tiếp). Không bán, tự mở khoá.
+- **Bảng vàng** tuần (bắt đầu thứ Hai) và mọi thời đại: ván dài nhất của mỗi tài khoản, chỉ tính phòng miễn phí, ván từ độ dài 50.
+- **Mã khôi phục tài khoản** (nút Tài khoản ở sảnh): mã 16 ký tự, lưu dạng băm. Nhập mã trên máy khác → máy đó dùng chung tài khoản
+  (máy cũ vẫn đăng nhập bình thường). Tạo mã mới thì mã cũ hết hiệu lực.
+
+**Trong trận**: âm thanh tự tổng hợp (WebAudio, có nút tắt), rung trên điện thoại, dòng thông báo hạ gục, hiệu ứng nổ khi rắn chết,
+màn hình kết quả có thống kê + nút **Chia sẻ** (tạo ảnh 1200×630; điện thoại mở bảng chia sẻ, máy tính tải ảnh và chép sẵn lời mời),
+nút **Mời bạn** chép link `/?room=MÃ` — người nhận bấm "Chơi ngay" là vào đúng phòng.
+Bot có 3 tính cách: nhút nhát (né rắn to), thợ săn (chặn đầu rắn nhỏ hơn, từ độ dài 40), tham ăn (lao vào ăn xác).
+
+**Giao thức mạng**: gói trạng thái 30 lần/giây gửi dạng nhị phân (cấu trúc ghi ở `room.js`, giải mã ở `decodeState()` trong
+`public/client.js`) — nhỏ hơn JSON khoảng 3,5 lần (~14 KB/s mỗi người chơi thay vì ~48 KB/s). Các tin khác vẫn là JSON.
+
 > ⚠️ Hiện đang ở **chế độ thử**: tiền là tiền ảo (nút "Nạp thử"), lệnh rút chỉ được ghi lại chứ chưa chuyển tiền thật.
 > Chưa có đăng nhập bằng ví: tài khoản gắn với token lưu trong trình duyệt, xoá dữ liệu trình duyệt là mất tài khoản.
 

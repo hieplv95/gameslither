@@ -143,8 +143,60 @@ canvas#game { position: absolute; inset: 0; width: 100%; height: 100%; display: 
 .qbar { height: 10px; border-radius: 6px; background: #1c2631; overflow: hidden; margin-bottom: 14px; }
 #qFill { height: 100%; width: 0; background: linear-gradient(90deg, #fbbf24, #f97316); transition: width .3s; }
 #qPrize { color: #cbd5e1; }
-#deathText { color: #cbd5e1; font-size: 16px; margin: 0 0 18px; }
+#deathText { color: #cbd5e1; font-size: 16px; margin: 0 0 14px; }
 #death .btn { margin-top: 8px; }
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(80px, 1fr)); gap: 6px; margin: 0 0 12px; }
+.stats div { background: rgba(255,255,255,0.05); border-radius: 10px; padding: 8px 4px; }
+.stats b { display: block; font-size: 22px; color: #fff; font-variant-numeric: tabular-nums; line-height: 1.2; }
+.stats div:first-child b { color: var(--gold); }
+.stats span { font-size: 11.5px; color: #93a4b8; }
+.death-extra p { margin: 0 0 6px; font-size: 13.5px; color: var(--green); }
+
+/* nút phụ ở sảnh: nhiệm vụ / xếp hạng / tài khoản */
+.menu-links { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 8px 0 2px; }
+.menu-links .btn { padding: 8px 4px; font-size: 13px; position: relative; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (max-width: 440px) { .menu-links .btn { font-size: 12px; padding: 8px 2px; } }
+.dot { position: absolute; top: 5px; right: 6px; width: 9px; height: 9px; border-radius: 50%; background: var(--red); }
+.invite-info { margin: 8px 0 0; padding: 8px 10px; border-radius: 10px; background: rgba(34,211,238,0.1); border: 1px solid rgba(34,211,238,0.35); font-size: 13.5px; }
+.sub-title { margin: 16px 0 8px; font-weight: 800; font-size: 15px; text-align: left; }
+
+/* nhiệm vụ, thành tích */
+.missions { list-style: none; padding: 0; margin: 10px 0 6px; text-align: left; }
+.missions li { background: rgba(255,255,255,0.04); border-radius: 10px; padding: 9px 12px; margin-bottom: 6px; font-size: 14px; }
+.missions li > div:first-child { display: flex; justify-content: space-between; gap: 8px; }
+.missions li b { color: var(--gold); white-space: nowrap; }
+.missions li.done { background: rgba(124,255,107,0.07); }
+.missions small { color: #93a4b8; font-size: 12px; }
+.mbar { height: 6px; border-radius: 4px; background: #1c2631; overflow: hidden; margin: 6px 0 2px; }
+.mbar i { display: block; height: 100%; background: linear-gradient(90deg, var(--teal), var(--green)); }
+.streak { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.sday { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 5px 0; line-height: 1.25; }
+.sday small { display: block; font-size: 10.5px; color: #93a4b8; }
+.sday b { font-size: 12px; color: #cbd5e1; }
+.sday.got { background: rgba(251,191,36,0.12); border-color: rgba(251,191,36,0.45); }
+.sday.got b { color: var(--gold); }
+.sday.today { box-shadow: 0 0 0 2px var(--gold); }
+.ach-row { display: flex; align-items: center; gap: 10px; }
+.ach-row canvas { width: 84px; height: 40px; flex: none; }
+.ach-row b { color: #fff !important; display: block; }
+.shop-item.ach small { display: block; font-size: 10.5px; color: #93a4b8; line-height: 1.3; padding: 0 2px; }
+
+/* bảng vàng */
+.hof { list-style: none; padding: 0; margin: 0 0 8px; text-align: left; }
+.hof li { display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 8px; font-size: 14px; }
+.hof li:nth-child(odd) { background: rgba(255,255,255,0.04); }
+.hof li i { font-style: normal; width: 28px; text-align: center; color: #93a4b8; }
+.hof li .n { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hof li small { color: #93a4b8; font-size: 12px; }
+.hof li b { color: var(--gold); font-variant-numeric: tabular-nums; min-width: 52px; text-align: right; }
+.hof li.empty { color: #93a4b8; justify-content: center; }
+
+/* tài khoản */
+.code-box { margin: 12px 0 0; }
+.code-box code { display: block; font-size: 20px; font-weight: 800; letter-spacing: 1px; padding: 10px; border-radius: 10px;
+  background: #0f151c; border: 2px dashed rgba(251,191,36,0.5); color: var(--gold); margin-bottom: 8px; user-select: all; }
+#restoreCode { margin: 0; text-transform: uppercase; }
+#restoreBtn { width: auto; padding: 9px 16px; }
 
 /* HUD trong trận */
 #score { position: absolute; left: 16px; bottom: 16px; font-size: 16px; font-weight: 700; color: rgba(255,255,255,0.85);
@@ -170,8 +222,30 @@ canvas#game { position: absolute; inset: 0; width: 100%; height: 100%; display: 
 #toast { position: absolute; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 50;
   background: #1c2631; border: 1px solid #334255; padding: 10px 16px; border-radius: 10px; font-size: 14px; max-width: calc(100% - 32px); }
 #toast.err { border-color: var(--red); }
+.mute-btn { left: 56px; }
+.hud-btn { position: absolute; left: 100px; top: 12px; z-index: 6; height: 38px; padding: 0 12px; border-radius: 10px;
+  border: 1px solid rgba(255,255,255,0.15); background: rgba(10,14,19,0.55); color: #fff; font-size: 14px; font-weight: 700; cursor: pointer; }
+.hud-btn:hover { background: rgba(10,14,19,0.8); }
+#killFeed { position: absolute; left: 12px; top: 60px; pointer-events: none; display: flex; flex-direction: column; gap: 4px; max-width: 46%; }
+#killFeed div { background: rgba(10,14,19,0.55); border-radius: 8px; padding: 3px 10px; font-size: 13px; color: #cbd5e1;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; animation: feedIn .25s ease-out; }
+#killFeed div.mine { color: #fff; border: 1px solid rgba(124,255,107,0.5); }
+#killFeed b { color: #fff; font-weight: 700; }
+@keyframes feedIn { from { opacity: 0; transform: translateX(-12px); } }
+#notice { position: absolute; left: 50%; top: 26%; transform: translate(-50%, -50%); pointer-events: none; opacity: 0;
+  font-size: 30px; font-weight: 900; color: var(--gold); text-shadow: 0 2px 12px rgba(0,0,0,0.7); white-space: nowrap; }
+#notice.pop { animation: noticePop 1.8s ease-out forwards; }
+@keyframes noticePop {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.6); }
+  12% { opacity: 1; transform: translate(-50%, -50%) scale(1.12); }
+  22% { transform: translate(-50%, -50%) scale(1); }
+  75% { opacity: 1; }
+  100% { opacity: 0; transform: translate(-50%, -80%); }
+}
 @media (pointer: coarse) {
   #boostBtn { display: block; }
+  #notice { font-size: 22px; }
+  #killFeed div { font-size: 11.5px; }
   #lb { width: 160px; font-size: 11.5px; padding: 8px 10px; }
   #lbList li span.n { max-width: 80px; }
   #minimap { width: 100px; height: 100px; }

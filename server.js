@@ -28,8 +28,37 @@ const U = db.UNIT;
 const COINS_PER_LENGTH = 10;                            // +1 xu cho mỗi 10 độ dài đạt được (tính từ độ dài lúc mới vào)
 const KILL_COINS = 5;                                   // +5 xu cho mỗi con rắn hạ gục
 const SKIN_PRICE = 500;                                 // giá mỗi mẫu cờ (xu)
-const SHOP = new Map();                                 // mẫu -> giá; các mẫu từ FREE_SKINS trở đi phải mua
-for (let k = FREE_SKINS; k < SKIN_COUNT; k++) SHOP.set(k, SKIN_PRICE);
+// Mẫu thành tích: không bán, tự mở khoá khi đạt mốc. kind: len = độ dài trong 1 mạng, time = sống bao nhiêu giây
+// trong 1 mạng, lifeKills = hạ bao nhiêu rắn trong 1 mạng, streak = đăng nhập bao nhiêu ngày liên tiếp.
+const ACHIEVEMENTS = [
+  { skin: 29, kind: 'len', n: 1500 },     // Hoả Ngục
+  { skin: 30, kind: 'time', n: 600 },     // Băng Giá
+  { skin: 31, kind: 'lifeKills', n: 5 },  // Bóng Đêm
+  { skin: 32, kind: 'streak', n: 7 },     // Cực Quang
+];
+const ACH_SKINS = new Set(ACHIEVEMENTS.map(a => a.skin));
+const SHOP = new Map();                                 // mẫu -> giá; các mẫu từ FREE_SKINS trở đi phải mua (trừ mẫu thành tích)
+for (let k = FREE_SKINS; k < SKIN_COUNT; k++) if (!ACH_SKINS.has(k)) SHOP.set(k, SKIN_PRICE);
+// Thưởng đăng nhập liên tiếp: ngày 1 → 7 rồi lặp lại
+const STREAK_REWARDS = [20, 30, 40, 60, 80, 100, 200];
+// Nhiệm vụ hằng ngày: mỗi ngày 3 nhiệm vụ (giống nhau cho mọi người) — luôn có 1 nhiệm vụ "chơi N ván",
+// thêm 2 trong 3 nhóm còn lại, độ khó chọn ngẫu nhiên theo ngày. Đếm theo giờ Việt Nam, xong là cộng xu ngay.
+const MISSION_POOL = {
+  games: [[3, 20], [5, 30]],
+  kills: [[3, 40], [5, 60], [10, 100]],
+  len: [[300, 40], [500, 60], [1000, 100]],
+  time: [[180, 40], [300, 60], [600, 100]],
+};
+function missionsFor(day) {
+  let h = 2166136261;   // FNV-1a theo ngày → số ngẫu nhiên cố định cho cả ngày
+  for (const ch of day) h = Math.imul(h ^ ch.charCodeAt(0), 16777619) >>> 0;
+  const rnd = () => { h = Math.imul(h ^ (h >>> 15), 2246822507) >>> 0; h = Math.imul(h ^ (h >>> 13), 3266489909) >>> 0; return ((h ^= h >>> 16) >>> 0) / 4294967296; };
+  const pick = kind => { const t = MISSION_POOL[kind]; const [n, reward] = t[Math.floor(rnd() * t.length)]; return { kind, n, reward }; };
+  const others = ['kills', 'len', 'time'];
+  others.splice(Math.floor(rnd() * 3), 1);
+  return [pick('games'), ...others.map(pick)];
+}
+const todayMissions = () => missionsFor(db.dayOf(Date.now()));
 
 // ---------------------------------------------------------------- static files
 const PUBLIC = path.join(__dirname, 'public');
@@ -115,7 +144,8 @@ function liveStats() {
 function createFreeRoom(isPublic) {
   const code = makeCode();
   const room = new Room({ uid: uid(), code, mode: 'free', worldR: 4000, bots: FREE_BOTS, cap: FREE_CAP });
-  room.onDeath = rewardCoins;
+  room.onDeath = onFreeDeath;
+  room.onKill = onFreeKill;
   room.isPublic = isPublic;
   room.emptySince = Date.now();
   freeRooms.set(code, room);
@@ -139,6 +169,7 @@ function leaveRoom(c) {
   c.room = null;
   c.snake = null;
   c.known = new Set();
+  c.named = new Set();
   c.vx = undefined;
 }
 
@@ -161,13 +192,104 @@ function sendBalance(c) {
   if (c.acct) send(c, { t: 'bal', bal: db.balance(c.acct) });
 }
 
-// ---------------------------------------------------------------- xu & cửa hàng
-// Gọi khi rắn của người chơi chết trong phòng miễn phí; kết quả được gửi kèm tin 'dead'.
-function rewardCoins(s) {
-  const acct = s.client && s.client.acct;
+// ---------------------------------------------------------------- xu, nhiệm vụ, thành tích
+// Cộng tiến độ nhiệm vụ hôm nay; nhớ các nhiệm vụ đã xong trên kết nối để vòng 1 giây khỏi hỏi DB.
+// Trả về danh sách nhiệm vụ vừa xong (đã cộng xu).
+function progress(c, d) {
+  const list = todayMissions();
+  const r = db.updateDaily(c.acct, d, list);
+  c.daily = { day: db.dayOf(Date.now()), done: r.prog.done };
+  return r.newly.map(i => list[i]);
+}
+function sendMissionDone(c, done) {
+  if (done.length) send(c, { t: 'mdone', list: done, coins: db.coins(c.acct) });
+}
+// Mở khoá mẫu thành tích đạt mốc. stats: { len, time, lifeKills, streak }. Trả về các mẫu mới.
+function unlockAchievements(acct, stats) {
+  const fresh = [];
+  for (const a of ACHIEVEMENTS) if (stats[a.kind] >= a.n && db.grantSkin(acct, a.skin)) fresh.push(a.skin);
+  return fresh;
+}
+
+// Rắn người chơi hạ được một con rắn (phòng miễn phí)
+function onFreeKill(killer) {
+  const c = killer.client;
+  if (c.acct) sendMissionDone(c, progress(c, { kills: 1 }));
+}
+
+// Rắn của người chơi chết trong phòng miễn phí: cộng xu, ghi thành tích/bảng xếp hạng/nhiệm vụ.
+// Kết quả được gửi kèm tin 'dead'.
+function onFreeDeath(s) {
+  const c = s.client, acct = c && c.acct;
   if (!acct) return null;
+  const len = Math.floor(s.peak), time = Math.round((Date.now() - s.bornAt) / 1000);
   const earned = Math.floor((s.peak - START_MASS) / COINS_PER_LENGTH) + s.kills * KILL_COINS;
-  return { earned, coins: earned > 0 ? db.addCoins(acct, earned) : db.coins(acct) };
+  if (earned > 0) db.addCoins(acct, earned);
+  db.recordLife(acct, s.kills, len, time);
+  if (len >= 50) db.addScore(acct, s.name, len, s.kills);
+  const done = progress(c, { len, time });
+  const skins = unlockAchievements(acct, { len, time, lifeKills: s.kills });
+  return { earned, coins: db.coins(acct), mdone: done, newSkins: skins, owned: skins.length ? db.ownedSkins(acct) : undefined };
+}
+
+// Vòng 1 giây: nhiệm vụ độ dài / thời gian sống được chấm ngay khi đạt, không đợi tới lúc chết
+function checkLiveMissions(now) {
+  const list = todayMissions(), day = db.dayOf(now);
+  for (const r of freeRooms.values()) for (const c of r.clients) {
+    const s = c.snake;
+    if (!c.acct || !s || !s.alive) continue;
+    const done = c.daily && c.daily.day === day ? c.daily.done : null;
+    const len = Math.floor(s.peak), time = Math.floor((now - s.bornAt) / 1000);
+    const due = list.some((m, i) => (m.kind === 'len' || m.kind === 'time') && (!done || !done.includes(i))
+      && (m.kind === 'len' ? len : time) >= m.n);
+    if (due) sendMissionDone(c, progress(c, { len, time }));
+  }
+}
+
+function missionsInfo(c) {
+  const list = todayMissions();
+  const p = db.profile(c.acct);
+  return { t: 'missions', list, prog: db.daily(c.acct), streak: p.streak, rewards: STREAK_REWARDS,
+    // giây còn lại tới 0 giờ (giờ Việt Nam) — lúc đổi nhiệm vụ
+    reset: Math.ceil((86400_000 - ((Date.now() + 7 * 3600_000) % 86400_000)) / 1000) };
+}
+
+// Bảng xếp hạng tuần / mọi thời đại — lưu tạm 15 giây cho đỡ truy vấn
+let hofCache = null, hofAt = 0;
+function hallOfFame() {
+  if (!hofCache || Date.now() - hofAt > 15_000) { hofCache = { t: 'hof', ...db.topScores(10) }; hofAt = Date.now(); }
+  return hofCache;
+}
+
+// ---------------------------------------------------------------- tài khoản
+// Gửi thông tin tài khoản cho client (sau khi đăng nhập hoặc khôi phục bằng mã).
+function sendAcct(c, token, balance) {
+  const check = db.checkIn(c.acct, STREAK_REWARDS);
+  const newSkins = unlockAchievements(c.acct, { streak: check.streak });
+  send(c, { t: 'acct', token, id: c.acct, bal: balance,
+    coins: db.coins(c.acct), owned: db.ownedSkins(c.acct), shop: [...SHOP], earn: { per: COINS_PER_LENGTH, kill: KILL_COINS },
+    ach: ACHIEVEMENTS.map(a => [a.skin, a.kind, a.n]), checkIn: { ...check, rewards: STREAK_REWARDS }, newSkins });
+}
+
+// Mã khôi phục: 16 ký tự (≈80 bit), hiển thị dạng XXXX-XXXX-XXXX-XXXX. Tạo mã mới thì mã cũ hết hiệu lực.
+const CODE_ABC = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+const normCode = s => (typeof s === 'string' ? s : '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+function newRecoveryCode(c) {
+  let code = '';
+  for (let i = 0; i < 16; i++) code += CODE_ABC[crypto.randomInt(CODE_ABC.length)];
+  db.setRecovery(c.acct, code);
+  send(c, { t: 'recovery', code: code.match(/.{4}/g).join('-') });
+}
+function recoverAccount(c, m) {
+  if (c.room || c.queue) return;
+  if (++c.recoverTries > 10) return send(c, { t: 'err', msg: M(c, 'badCode') });
+  const code = normCode(m.code);
+  const r = code.length === 16 ? db.recover(code) : null;
+  if (!r) return send(c, { t: 'err', msg: M(c, 'badCode') });
+  c.acct = r.id;
+  c.daily = null;
+  sendAcct(c, r.token, db.balance(r.id));
+  send(c, { t: 'ok', msg: M(c, 'recovered') });
 }
 
 function buySkin(c, m) {
@@ -199,7 +321,9 @@ function joinFree(c, m) {
   c.snake = room.spawnSnake(sanitizeName(m.name), sanitizeLook(m, c.acct), false, c);
   db.recordPlay('free', c.country);
   c.known = new Set();
+  c.named = new Set();
   send(c, { t: 'init', id: c.snake.id, wr: room.baseR, mode: 'free', code: room.code });
+  sendMissionDone(c, progress(c, { games: 1 }));
 }
 
 // ---------------------------------------------------------------- paid play
@@ -281,6 +405,7 @@ function startPaidMatch(q) {
     db.recordPlay('paid', c.country);
     room.accounts.set(c.snake.id, acct);
     c.known = new Set();
+    c.named = new Set();
     send(c, { t: 'init', id: c.snake.id, wr: room.baseR, mode: 'paid', stake: q.stake, prize: room.prize });
   });
 
@@ -334,7 +459,8 @@ function lobbyInfo() {
 const wss = new WebSocketServer({ server, maxPayload: 2048 });
 wss.on('connection', (ws, req) => {
   const ip = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
-  const c = { ws, ip, country: panel.countryOf(req), acct: 0, room: null, snake: null, queue: null, known: new Set(), vx: undefined, msgs: 0 };
+  const c = { ws, ip, country: panel.countryOf(req), acct: 0, room: null, snake: null, queue: null, known: new Set(), named: new Set(),
+    vx: undefined, msgs: 0, recoverTries: 0, daily: null };
   clients.add(c);
 
   ws.on('message', data => {
@@ -348,8 +474,7 @@ wss.on('connection', (ws, req) => {
       c.lang = LOCALE_BY_CODE.has(m.lang) ? m.lang : 'en';
       const a = db.login(m.token);
       c.acct = a.id;
-      send(c, { t: 'acct', token: a.token, id: a.id, bal: a.balance,
-        coins: db.coins(a.id), owned: db.ownedSkins(a.id), shop: [...SHOP], earn: { per: COINS_PER_LENGTH, kill: KILL_COINS } });
+      sendAcct(c, a.token, a.balance);
       send(c, lobbyInfo());
       return;
     }
@@ -365,6 +490,10 @@ wss.on('connection', (ws, req) => {
         break;
       case 'joinFree': joinFree(c, m); break;
       case 'buySkin': buySkin(c, m); break;
+      case 'missions': send(c, missionsInfo(c)); break;
+      case 'hof': send(c, hallOfFame()); break;
+      case 'recoveryCode': newRecoveryCode(c); break;
+      case 'recover': recoverAccount(c, m); break;
       case 'leave':
         if (!c.room) break;
         if (c.room.mode === 'paid') {
@@ -399,6 +528,7 @@ setInterval(() => {
 setInterval(() => {
   const now = Date.now();
   for (const c of clients) c.msgs = 0;
+  checkLiveMissions(now);
 
   for (const q of queues.values()) {
     if (q.countdownAt && now >= q.countdownAt && q.members.size >= PAID_ROOM_SIZE) startPaidMatch(q);

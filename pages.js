@@ -108,9 +108,13 @@ function render(L) {
       <div id="gameWrap" class="game-wrap" dir="ltr">
         <canvas id="game" aria-label="${esc(t.boardAria)}"></canvas>
         <button id="fullscreen" class="fs-btn" title="${esc(t.fullscreen)}" aria-label="${esc(t.fullscreen)}">⛶</button>
+        <button id="muteBtn" class="fs-btn mute-btn" title="${esc(ui.mute)}" aria-label="${esc(ui.mute)}" aria-pressed="false">🔊</button>
 
         <div id="hud" class="hidden">
           <div id="paidBar" class="hidden"></div>
+          <button id="inviteBtn" class="hud-btn hidden">🔗 ${esc(ui.invite)}</button>
+          <div id="killFeed" aria-live="polite"></div>
+          <div id="notice"></div>
           <div id="score"></div>
           <div id="lb">
             <div class="lb-title">${t.leaderboard}</div>
@@ -131,6 +135,12 @@ function render(L) {
               <span class="coins" title="${esc(ui.coins)}">🪙 <b id="coins">0</b> ${esc(ui.coins)}</span>
               <button id="openShop" class="btn ghost sm">🛒 ${esc(ui.shop)}</button>
             </div>
+            <div class="menu-links">
+              <button id="openMissions" class="btn ghost sm">🎯 ${esc(ui.missions)}<i id="missionDot" class="dot hidden"></i></button>
+              <button id="openHof" class="btn ghost sm">🏆 ${esc(ui.hof)}</button>
+              <button id="openAccount" class="btn ghost sm">👤 ${esc(ui.account)}</button>
+            </div>
+            <p id="inviteInfo" class="invite-info hidden"></p>
 
             <div class="mode">
               <div class="mode-head"><div class="mode-title">🎮 ${t.freePlay}</div><span id="onlineInfo" class="muted"></span></div>
@@ -219,11 +229,59 @@ function render(L) {
           </div>
         </div>`)}
 
+        <div id="missionsModal" class="overlay hidden">
+          <div class="card wide" dir="${L.dir}">
+            <div class="card-title">🎯 ${esc(ui.missionsTitle)}</div>
+            <ul id="missionList" class="missions"></ul>
+            <p id="missionReset" class="muted small"></p>
+            <div class="sub-title">🔥 ${esc(ui.streakTitle)}</div>
+            <div id="streakRow" class="streak"></div>
+            <div class="sub-title">🏅 ${esc(ui.achTitle)}</div>
+            <ul id="achList" class="missions"></ul>
+            <button class="link" data-close>${t.close}</button>
+          </div>
+        </div>
+
+        <div id="hofModal" class="overlay hidden">
+          <div class="card" dir="${L.dir}">
+            <div class="card-title">🏆 ${esc(ui.hofTitle)}</div>
+            <div class="tabs hof-tabs">
+              <button data-hof="week" class="on">${esc(ui.hofWeek)}</button>
+              <button data-hof="all">${esc(ui.hofAll)}</button>
+            </div>
+            <ol id="hofList" class="hof"></ol>
+            <p class="muted small">${esc(ui.hofNote)}</p>
+            <button class="link" data-close>${t.close}</button>
+          </div>
+        </div>
+
+        <div id="accountModal" class="overlay hidden">
+          <div class="card" dir="${L.dir}">
+            <div class="card-title">👤 ${esc(ui.accountTitle)}</div>
+            <p class="muted">${esc(ui.accountIntro)}</p>
+            <button id="makeCode" class="btn sm">${esc(ui.makeCode)}</button>
+            <div id="codeBox" class="code-box hidden">
+              <code id="codeText" dir="ltr"></code>
+              <button id="copyCode" class="btn ghost sm">${esc(ui.copy)}</button>
+              <p class="warn small">${esc(ui.codeWarn)}</p>
+            </div>
+            <div class="sub-title">${esc(ui.restoreTitle)}</div>
+            <div class="row">
+              <input id="restoreCode" maxlength="24" placeholder="XXXX-XXXX-XXXX-XXXX" autocomplete="off" spellcheck="false" dir="ltr" aria-label="${esc(ui.restoreTitle)}">
+              <button id="restoreBtn" class="btn sm">${esc(ui.restore)}</button>
+            </div>
+            <button class="link" data-close>${t.close}</button>
+          </div>
+        </div>
+
         <div id="death" class="overlay hidden">
           <div class="card" dir="${L.dir}">
             <div class="card-title" id="deathTitle">${t.youDied}</div>
             <p id="deathText"></p>
+            <div id="deathStats" class="stats hidden"></div>
+            <div id="deathExtra" class="death-extra"></div>
             <button id="again" class="btn">${t.playAgain}</button>
+            <button id="shareBtn" class="btn ghost hidden">📤 ${esc(ui.share)}</button>
             <button id="watch" class="btn ghost hidden">${t.keepWatching}</button>
             <button id="toMenu" class="link">${t.backLobby}</button>
           </div>

@@ -37,19 +37,55 @@ function angleDiff(a, b) {
 // 0–4: Neon, Rồng Vàng, Kẹo, Trăn, Thiên Hà · 5: Cổ điển (rắn một màu, màu do người chơi chọn) — 6 mẫu miễn phí.
 // 6–25: cờ 20 nước đông dân nhất (mua trong cửa hàng bằng xu): Ấn Độ, Trung Quốc, Mỹ, Indonesia, Pakistan,
 // Nigeria, Brazil, Bangladesh, Nga, Ethiopia, Mexico, Nhật, Ai Cập, Philippines, CHDC Congo, Việt Nam, Iran,
-// Thổ Nhĩ Kỳ, Đức, Thái Lan · 26–28: thêm Vương quốc Anh, Ý, Tây Ban Nha.
+// Thổ Nhĩ Kỳ, Đức, Thái Lan · 26–28: thêm Vương quốc Anh, Ý, Tây Ban Nha
+// · 29–32: mẫu thành tích (không bán, mở khoá khi đạt mốc — xem ACHIEVEMENTS ở server.js): Hoả Ngục, Băng Giá, Bóng Đêm, Cực Quang.
 const SKIN_HUES = [188, 42, 320, 80, 262, null,
   30, 0, 220, 0, 140, 140, 140, 150, 220, 55, 140, 350, 0, 220, 205, 0, 140, 355, 48, 230,
-  220, 120, 45];
+  220, 120, 45,
+  18, 195, 275, 150];
 const CLASSIC = 5;
 const FREE_SKINS = 6;
 
-let nextSnakeId = 1; // dùng chung mọi phòng để id không bao giờ trùng
+let nextSnakeId = 1; // dùng chung mọi phòng để id không bao giờ trùng → client giữ được tên/mẫu rắn theo id
 let nextFoodId = 1;
 
+// Tính cách bot: nhút nhát (né rắn to), thợ săn (chặn đầu rắn nhỏ hơn), tham ăn (lao vào ăn xác, mồi to)
+const PERSONAS = ['shy', 'shy', 'hunter', 'hunter', 'hunter', 'glutton', 'glutton'];
+
+const writable = c => c.ws.readyState === 1 && c.ws.bufferedAmount < 512 * 1024;
 function send(c, obj) {
-  if (c.ws.readyState === 1 && c.ws.bufferedAmount < 512 * 1024) c.ws.send(JSON.stringify(obj));
+  if (writable(c)) c.ws.send(JSON.stringify(obj));
 }
+
+// ------------------------------------------------------------ gói trạng thái nhị phân
+// Gói 's' gửi 30 lần/giây nên được mã hoá nhị phân thay cho JSON (nhỏ hơn 3–5 lần). Giải mã ở public/client.js → decodeState().
+// Little-endian:
+//   u8 1 · f64 ts · i16 vx, vy · u16 vr, wr · i32 độ dài của mình (-1 = đã chết)
+//   u16 số rắn · mỗi rắn: u32 id · u8 cờ (1 tăng tốc, 2 kèm thông tin, 4 toạ độ đầy đủ) · u16 r×10 · i16 góc×10000
+//     [cờ 2 (lần đầu client thấy con rắn này): u8 mẫu · u16 màu · u8 số byte tên · tên UTF-8]
+//     u16 số điểm · i16 x0, y0 · các điểm sau: i8 dx, dy so với điểm trước (cờ 4: i16 x, y)
+//   u16 số mồi mới · mỗi mồi: u32 id · i16 x, y · u8 giá trị · u16 màu
+//   u16 số mồi mất · mỗi mồi: u32 id · u32 id rắn đã ăn (0 = tự biến mất)
+class Writer {
+  constructor() { this.buf = Buffer.allocUnsafe(1 << 16); this.o = 0; }
+  need(n) {
+    if (this.o + n <= this.buf.length) return;
+    const b = Buffer.allocUnsafe(Math.max(this.buf.length * 2, this.o + n));
+    this.buf.copy(b, 0, 0, this.o);
+    this.buf = b;
+  }
+  u8(v) { this.need(1); this.buf.writeUInt8(v, this.o); this.o += 1; }
+  i8(v) { this.need(1); this.buf.writeInt8(v, this.o); this.o += 1; }
+  u16(v) { this.need(2); this.buf.writeUInt16LE(v, this.o); this.o += 2; }
+  i16(v) { this.need(2); this.buf.writeInt16LE(v, this.o); this.o += 2; }
+  u32(v) { this.need(4); this.buf.writeUInt32LE(v, this.o); this.o += 4; }
+  i32(v) { this.need(4); this.buf.writeInt32LE(v, this.o); this.o += 4; }
+  f64(v) { this.need(8); this.buf.writeDoubleLE(v, this.o); this.o += 8; }
+  bytes(b) { this.need(b.length); b.copy(this.buf, this.o); this.o += b.length; }
+}
+const W = new Writer();
+const clamp16 = v => Math.max(-32768, Math.min(32767, v));
+const normAngle = a => { a %= Math.PI * 2; return a > Math.PI ? a - Math.PI * 2 : a < -Math.PI ? a + Math.PI * 2 : a; };
 
 class Room {
   /**
@@ -89,8 +125,9 @@ class Room {
   }
   addFood(x, y, v, hue, sector) {
     if (Math.hypot(x, y) > this.worldR - 15) return null;
-    const f = { id: nextFoodId++, x: Math.round(x), y: Math.round(y), v, hue,
+    const f = { id: nextFoodId, x: Math.round(x), y: Math.round(y), v, hue,
       cx: Math.floor(x / CELL), cy: Math.floor(y / CELL) };
+    nextFoodId = nextFoodId >= 0xFFFFFFFF ? 1 : nextFoodId + 1;   // id gửi dạng u32
     if (sector !== undefined) { f.sector = sector; this.natural.set(sector, (this.natural.get(sector) || 0) + 1); }
     else f.exp = (this.now || Date.now()) + DROP_TTL * (0.8 + Math.random() * 0.4);   // lệch nhẹ để không biến mất cùng lúc
     this.foods.set(f.id, f);
@@ -182,7 +219,8 @@ class Room {
       id: nextSnakeId++, name, skin, hue, bot, alive: true, client,
       x: p.x, y: p.y, angle, targetAngle: angle, boost: false, boosting: false,
       mass: START_MASS, peak: START_MASS, kills: 0, r: radiusOf(START_MASS), boostAcc: 0, segs: [],
-      foodTarget: null, thinkIn: 0, boostTicks: 0,
+      foodTarget: null, thinkIn: 0, boostTicks: 0, bornAt: this.now || Date.now(), bestRank: 0,
+      persona: bot ? PERSONAS[Math.floor(Math.random() * PERSONAS.length)] : null, prey: null, huntIn: 0, huntUntil: 0,
     };
     const len = segCountOf(s.mass) * SEG;
     s.path = [{ x: p.x, y: p.y }, { x: p.x - Math.cos(angle) * len, y: p.y - Math.sin(angle) * len }];
@@ -217,7 +255,11 @@ class Room {
   killSnake(s, killer) {
     if (!s.alive) return;
     s.alive = false;
-    if (killer && killer !== s) killer.kills++;
+    const now = this.now || Date.now();
+    if (killer && killer !== s) {
+      killer.kills++;
+      if (killer.client && this.onKill) this.onKill(killer, s);
+    }
     const segs = s.segs;
     const drops = Math.max(3, Math.floor(segs.length / 2));
     const v = Math.max(1, Math.round((s.mass * 0.75) / drops));
@@ -226,8 +268,13 @@ class Room {
       this.addFood(g.x + rand(-s.r * 0.6, s.r * 0.6), g.y + rand(-s.r * 0.6, s.r * 0.6), v, s.hue);
     }
     this.snakes.delete(s.id);
+    // Báo cả phòng: dòng thông báo hạ gục + hiệu ứng nổ ở chỗ rắn chết
+    const ev = { t: 'kf', k: killer && killer !== s ? killer.name : null, kid: killer && killer !== s ? killer.id : 0,
+      v: s.name, vid: s.id, x: Math.round(s.x), y: Math.round(s.y), hue: s.hue, big: s.mass >= 100 ? 1 : 0 };
+    for (const c of this.clients) send(c, ev);
     if (s.client) {
-      const msg = { t: 'dead', mass: Math.floor(s.mass), by: killer ? killer.name : null };
+      const msg = { t: 'dead', mass: Math.floor(s.mass), peak: Math.floor(s.peak), kills: s.kills,
+        time: Math.round((now - s.bornAt) / 1000), rank: s.bestRank, by: killer ? killer.name : null };
       if (this.mode === 'paid') msg.place = this.humanCount() + 1;
       if (this.onDeath) Object.assign(msg, this.onDeath(s));   // server cộng thưởng (xu) và báo kèm
       send(s.client, msg);
@@ -241,7 +288,7 @@ class Room {
       s.boost = false;
       return;
     }
-    const look = s.r + 40;
+    const look = (s.r + 40) * (s.persona === 'shy' ? 1.4 : 1);
     const danger = ang => {
       for (let i = 1; i <= 3; i++) {
         const d = look * i * (s.boosting ? 1.6 : 1);
@@ -254,28 +301,67 @@ class Room {
     if (danger(s.angle)) {
       s.boost = false;
       s.foodTarget = null;
+      s.prey = null;
       for (const off of [0.7, -0.7, 1.3, -1.3, 2, -2, 2.7, -2.7]) {
         if (!danger(s.angle + off)) { s.targetAngle = s.angle + off; return; }
       }
       s.targetAngle = s.angle + Math.PI;
       return;
     }
+    if (s.persona === 'hunter' && this.hunt(s)) return;
+    if (s.persona === 'shy') {
+      // tránh xa đầu những con rắn to hơn ở gần
+      for (const o of this.snakes.values()) {
+        if (o === s || o.mass < s.mass) continue;
+        const dx = s.x - o.x, dy = s.y - o.y;
+        if (dx * dx + dy * dy < 300 * 300) { s.targetAngle = Math.atan2(dy, dx); s.foodTarget = null; return; }
+      }
+    }
     if (s.boostTicks > 0) { s.boostTicks--; if (!s.boostTicks) s.boost = false; }
     if (s.foodTarget && !this.foods.has(s.foodTarget.id)) s.foodTarget = null;
     if (--s.thinkIn <= 0 || !s.foodTarget) {
       s.thinkIn = 6 + Math.floor(Math.random() * 6);
+      const glutton = s.persona === 'glutton';
       let best = null, bestScore = 0;
-      this.forFoodNear(s.x, s.y, 320, f => {
+      // Mồi to (xác rắn vừa chết) được ưu tiên hơn hẳn; bot tham ăn nhìn xa hơn và ham mồi to hơn
+      this.forFoodNear(s.x, s.y, glutton ? 600 : 380, f => {
         const d = Math.hypot(f.x - s.x, f.y - s.y);
         const facing = 1.4 - Math.abs(angleDiff(s.angle, Math.atan2(f.y - s.y, f.x - s.x))) / Math.PI;
-        const score = (f.v / (d + 40)) * facing;
+        const score = (f.v ** (glutton ? 1.7 : 1.3) / (d + 40)) * facing;
         if (score > bestScore) { bestScore = score; best = f; }
       });
       s.foodTarget = best;
-      if (best && best.v >= 4 && s.mass > 30 && Math.random() < 0.3) { s.boost = true; s.boostTicks = 20; }
+      if (best && best.v >= 3 && s.mass > 30 && Math.random() < (glutton ? 0.6 : 0.3)) { s.boost = true; s.boostTicks = 20; }
     }
     if (s.foodTarget) s.targetAngle = Math.atan2(s.foodTarget.y - s.y, s.foodTarget.x - s.x);
     else if (Math.random() < 0.03) s.targetAngle = s.angle + rand(-1.2, 1.2);
+  }
+
+  // Bot thợ săn: chọn một con rắn nhỏ hơn ở gần rồi lao tới chặn trước đầu nó. Trả về true nếu đang săn.
+  hunt(s) {
+    if (s.mass < 40) return false;   // bot mới sinh còn nhỏ thì chỉ ăn mồi
+    const now = this.now || Date.now();
+    let p = s.prey;
+    if (p && (!p.alive || now > s.huntUntil || Math.hypot(p.x - s.x, p.y - s.y) > 900)) {
+      s.prey = p = null;
+      s.boost = false;
+    }
+    if (!p && --s.huntIn <= 0) {
+      s.huntIn = 30 + Math.floor(Math.random() * 60);   // 1–3 giây mới tìm con mồi một lần
+      let bd = 650;
+      for (const o of this.snakes.values()) {
+        if (o === s || o.mass > s.mass * 0.7) continue;
+        const d = Math.hypot(o.x - s.x, o.y - s.y);
+        if (d < bd) { bd = d; p = o; }
+      }
+      if (p) { s.prey = p; s.huntUntil = now + 4000 + Math.random() * 3000; }
+    }
+    if (!p) return false;
+    const d = Math.hypot(p.x - s.x, p.y - s.y);
+    const lead = Math.min(260, d * 0.6) + p.r * 2;
+    s.targetAngle = Math.atan2(p.y + Math.sin(p.angle) * lead - s.y, p.x + Math.cos(p.angle) * lead - s.x);
+    s.boost = d < 380 && s.mass > 50;
+    return true;
   }
 
   // ------------------------------------------------------------ paid-room helpers
@@ -393,25 +479,59 @@ class Room {
     if (c.vx === undefined) return;
     const vx = c.vx, vy = c.vy, vr = c.vr;
 
-    const sn = [];
+    W.o = 0;
+    W.u8(1); W.f64(now); W.i16(clamp16(Math.round(vx))); W.i16(clamp16(Math.round(vy)));
+    W.u16(Math.min(65535, Math.round(vr))); W.u16(Math.round(this.worldR)); W.i32(alive ? Math.floor(s.mass) : -1);
+
+    const countAt = W.o;
+    let n = 0;
+    W.u16(0);
+    const pts = [];
     for (const o of this.snakes.values()) {
       if (o.maxX < vx - vr || o.minX > vx + vr || o.maxY < vy - vr || o.minY > vy + vr) continue;
-      const pts = [];
-      for (let i = 0; i < o.segs.length; i += 2) pts.push(Math.round(o.segs[i].x), Math.round(o.segs[i].y));
-      sn.push([o.id, o.name, o.skin, Math.round(o.r * 10), o.boosting ? 1 : 0, Math.round(o.angle * 100), pts, o.hue]);
+      pts.length = 0;
+      let wide = false;
+      for (let i = 0; i < o.segs.length; i += 2) {
+        const x = Math.round(o.segs[i].x), y = Math.round(o.segs[i].y);
+        if (pts.length && (Math.abs(x - pts[pts.length - 2]) > 127 || Math.abs(y - pts[pts.length - 1]) > 127)) wide = true;
+        pts.push(x, y);
+      }
+      const info = !c.named.has(o.id);
+      W.u32(o.id);
+      W.u8((o.boosting ? 1 : 0) | (info ? 2 : 0) | (wide ? 4 : 0));
+      W.u16(Math.round(o.r * 10));
+      W.i16(Math.round(normAngle(o.angle) * 10000));
+      if (info) {
+        c.named.add(o.id);
+        const name = Buffer.from(o.name, 'utf8').subarray(0, 255);
+        W.u8(o.skin); W.u16(o.hue); W.u8(name.length); W.bytes(name);
+      }
+      W.u16(pts.length / 2);
+      W.i16(clamp16(pts[0])); W.i16(clamp16(pts[1]));
+      for (let i = 2; i < pts.length; i += 2) {
+        if (wide) { W.i16(clamp16(pts[i])); W.i16(clamp16(pts[i + 1])); }
+        else { W.i8(pts[i] - pts[i - 2]); W.i8(pts[i + 1] - pts[i - 1]); }
+      }
+      n++;
     }
+    W.buf.writeUInt16LE(n, countAt);
 
-    const cur = new Set(), fa = [], fr = [];
+    const cur = new Set(), fa = [];
     this.forFoodNear(vx, vy, vr, f => {
       if (Math.abs(f.x - vx) > vr || Math.abs(f.y - vy) > vr) return;
       cur.add(f.id);
-      if (!c.known.has(f.id)) fa.push(f.id, f.x, f.y, f.v, f.hue);
+      if (!c.known.has(f.id)) fa.push(f);
     });
-    for (const id of c.known) if (!cur.has(id)) fr.push(id, this.eatenBy.get(id) || 0);
+    W.u16(fa.length);
+    for (const f of fa) { W.u32(f.id); W.i16(f.x); W.i16(f.y); W.u8(Math.min(255, f.v)); W.u16(f.hue); }
+    const frAt = W.o;
+    let nr = 0;
+    W.u16(0);
+    for (const id of c.known) if (!cur.has(id)) { W.u32(id); W.u32(this.eatenBy.get(id) || 0); nr++; }
+    W.buf.writeUInt16LE(nr, frAt);
     c.known = cur;
 
-    send(c, { t: 's', ts: now, vx: Math.round(vx), vy: Math.round(vy), vr: Math.round(vr),
-      wr: Math.round(this.worldR), m: alive ? Math.floor(s.mass) : undefined, sn, fa, fr });
+    if (writable(c)) c.ws.send(Buffer.from(W.buf.subarray(0, W.o)));
   }
 
   sendLeaderboards(now) {
@@ -426,6 +546,7 @@ class Room {
     }
     for (const c of this.clients) {
       const rank = c.snake && c.snake.alive ? list.indexOf(c.snake) + 1 : 0;
+      if (rank && (!c.snake.bestRank || rank < c.snake.bestRank)) c.snake.bestRank = rank;
       send(c, { ...base, rank });
     }
   }
