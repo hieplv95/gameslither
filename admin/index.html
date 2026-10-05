@@ -47,11 +47,23 @@
     <!-- Thống kê -->
     <section id="tab-stats" class="page">
       <div class="page-head">
-        <h1>Thống kê</h1>
-        <div class="range" role="group" aria-label="Khoảng thời gian">
-          <button data-days="7">7 ngày</button>
-          <button data-days="30" class="on">30 ngày</button>
-          <button data-days="90">90 ngày</button>
+        <div>
+          <h1>Thống kê</h1>
+          <div class="range-text" id="rangeText"></div>
+        </div>
+        <div class="range-box">
+          <div class="range" id="statsRange" role="group" aria-label="Khoảng thời gian">
+            <button data-range="today">Hôm nay</button>
+            <button data-range="yesterday">Hôm qua</button>
+            <button data-range="week">Tuần này</button>
+            <button data-range="month" class="on">Tháng này</button>
+            <button data-range="custom">Tùy chỉnh</button>
+          </div>
+          <form class="custom-range hidden" id="customRange">
+            <label>Từ <input type="date" id="rangeFrom" required></label>
+            <label>Đến <input type="date" id="rangeTo" required></label>
+            <button class="btn" type="submit">Xem</button>
+          </form>
         </div>
       </div>
 
@@ -64,7 +76,7 @@
 
       <div class="panel">
         <div class="panel-head">
-          <h2>Theo ngày</h2>
+          <h2 id="chartTitle">Theo ngày</h2>
           <div class="legend" id="legend"></div>
         </div>
         <div class="chart" id="chart"><div class="tooltip hidden" id="tooltip"></div></div>

@@ -200,6 +200,7 @@ module.exports = {
     ctaBtn: 'अभी GameSlither खेलें',
     photo: 'फ़ोटो:',
     allPosts: 'सभी लेख',
+    page: 'पेज {n}', newer: '← नए लेख', older: 'पुराने लेख →', pages: 'पेज',
   },
   server: {
     inQueue: 'आप पेड रूम की कतार में हैं।', noRoom: 'रूम नहीं मिला।', roomFull: 'यह रूम भर चुका है।',

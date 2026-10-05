@@ -198,6 +198,7 @@ module.exports = {
     ctaBtn: '立即玩 GameSlither',
     photo: '图片：',
     allPosts: '全部文章',
+    page: '第 {n} 页', newer: '← 较新文章', older: '较早文章 →', pages: '分页',
   },
   server: {
     inQueue: '你正在付费房间排队中。', noRoom: '找不到该房间。', roomFull: '该房间已满。',

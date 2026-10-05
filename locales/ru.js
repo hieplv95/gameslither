@@ -200,6 +200,7 @@ module.exports = {
     ctaBtn: 'Играть в GameSlither',
     photo: 'Фото:',
     allPosts: 'Все статьи',
+    page: 'Страница {n}', newer: '← Новее', older: 'Старее →', pages: 'Страницы',
   },
   server: {
     inQueue: 'Вы стоите в очереди в платную комнату.', noRoom: 'Комната не найдена.', roomFull: 'Комната заполнена.',

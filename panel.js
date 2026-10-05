@@ -119,6 +119,35 @@ function trackVisit(req) {
 }
 
 // ---------------------------------------------------------------- HTTP helpers
+// Khoảng thống kê (ngày theo giờ Việt Nam): range = today | yesterday | week (từ thứ Hai) | month | custom (from, to).
+// Kèm kỳ trước để so sánh: hôm qua / hôm kia / tuần trước / tháng trước (cùng số ngày) / đoạn liền trước cùng độ dài.
+// Trả về null nếu khoảng tuỳ chỉnh không hợp lệ.
+const DAY_MS = 86400_000;
+const dayNum = d => Date.parse(d + 'T00:00:00Z') / DAY_MS;            // YYYY-MM-DD -> số ngày
+const numDay = n => new Date(n * DAY_MS).toISOString().slice(0, 10);   // ngược lại
+function statsRange(params) {
+  const today = db.dayOf(Date.now()), t = dayNum(today);
+  const range = params.get('range') || 'month';
+  const shift = (from, to, k) => ({ prevFrom: numDay(dayNum(from) - k), prevTo: numDay(dayNum(to) - k) });
+  if (range === 'today') return { range, from: today, to: today, ...shift(today, today, 1) };
+  if (range === 'yesterday') { const y = numDay(t - 1); return { range, from: y, to: y, ...shift(y, y, 1) }; }
+  if (range === 'week') { const w = db.weekOf(Date.now()); return { range, from: w, to: today, ...shift(w, today, 7) }; }
+  if (range === 'custom') {
+    const from = params.get('from'), to = params.get('to');
+    const ok = d => /^\d{4}-\d{2}-\d{2}$/.test(d || '') && !isNaN(dayNum(d));
+    if (!ok(from) || !ok(to) || from > to || to > today || dayNum(to) - dayNum(from) > 365) return null;
+    const len = dayNum(to) - dayNum(from) + 1;
+    return { range, from, to, ...shift(from, to, len) };
+  }
+  // tháng này: ngày 1 → hôm nay; so với cùng các ngày của tháng trước (tháng trước ngắn hơn thì dừng ở ngày cuối tháng)
+  const [y, m, d] = today.split('-').map(Number);
+  const pm = m === 1 ? 12 : m - 1, py = m === 1 ? y - 1 : y;
+  const lastPrev = new Date(Date.UTC(py, pm, 0)).getUTCDate();
+  const pad = n => String(n).padStart(2, '0');
+  return { range: 'month', from: `${y}-${pad(m)}-01`, to: today,
+    prevFrom: `${py}-${pad(pm)}-01`, prevTo: `${py}-${pad(pm)}-${pad(Math.min(d, lastPrev))}` };
+}
+
 function json(res, code, obj, extra = {}) {
   res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex', ...extra });
   res.end(JSON.stringify(obj));
@@ -221,9 +250,9 @@ function handle(req, res, p, getLive) {
   if (mustChange()) { json(res, 403, { error: 'Hãy đổi mật khẩu mặc định trước.', mustChange: true }); return true; }
 
   if (route === 'GET /admin/api/stats') {
-    const asked = Number(new URL(req.url, 'http://x').searchParams.get('days'));
-    const days = [7, 30, 90].includes(asked) ? asked : 30;
-    json(res, 200, { ...db.stats(days), live: getLive(), geo: geoip ? 'geoip-lite' : 'cdn-header' });
+    const r = statsRange(new URL(req.url, 'http://x').searchParams);
+    if (!r) { json(res, 400, { error: 'Khoảng ngày không hợp lệ (tối đa 366 ngày, không quá hôm nay).' }); return true; }
+    json(res, 200, { ...db.stats(r), range: r.range, live: getLive(), geo: geoip ? 'geoip-lite' : 'cdn-header' });
     return true;
   }
 

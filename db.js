@@ -206,13 +206,17 @@ const weekOf = ts => { const d = new Date(ts + TZ_OFFSET_MS); return dayOf(ts - 
 const qa = {
   visit: db.prepare('INSERT INTO visits (ts, day, vid, country, device, ref) VALUES (?, ?, ?, ?, ?, ?)'),
   play: db.prepare('INSERT INTO plays (ts, day, mode, country) VALUES (?, ?, ?, ?)'),
-  vDaily: db.prepare('SELECT day, COUNT(*) v, COUNT(DISTINCT vid) u FROM visits WHERE day >= ? GROUP BY day'),
-  pDaily: db.prepare('SELECT day, COUNT(*) p FROM plays WHERE day >= ? GROUP BY day'),
-  vTotal: db.prepare('SELECT COUNT(*) v, COUNT(DISTINCT vid) u FROM visits WHERE day >= ?'),
-  pTotal: db.prepare('SELECT COUNT(*) p FROM plays WHERE day >= ?'),
-  countries: db.prepare('SELECT country, COUNT(*) n, COUNT(DISTINCT vid) u FROM visits WHERE day >= ? GROUP BY country ORDER BY n DESC LIMIT 20'),
-  devices: db.prepare('SELECT device, COUNT(*) n FROM visits WHERE day >= ? GROUP BY device ORDER BY n DESC'),
-  refs: db.prepare("SELECT ref, COUNT(*) n FROM visits WHERE day >= ? AND ref IS NOT NULL AND ref != '' GROUP BY ref ORDER BY n DESC LIMIT 10"),
+  // các truy vấn thống kê nhận khoảng ngày [từ, đến] (tính cả 2 đầu, giờ Việt Nam)
+  vDaily: db.prepare('SELECT day, COUNT(*) v, COUNT(DISTINCT vid) u FROM visits WHERE day BETWEEN ? AND ? GROUP BY day'),
+  pDaily: db.prepare('SELECT day, COUNT(*) p FROM plays WHERE day BETWEEN ? AND ? GROUP BY day'),
+  // theo giờ trong 1 ngày (giờ Việt Nam = UTC+7)
+  vHourly: db.prepare(`SELECT CAST(((ts + ${TZ_OFFSET_MS}) % 86400000) / 3600000 AS INTEGER) h, COUNT(*) v, COUNT(DISTINCT vid) u FROM visits WHERE day = ? GROUP BY h`),
+  pHourly: db.prepare(`SELECT CAST(((ts + ${TZ_OFFSET_MS}) % 86400000) / 3600000 AS INTEGER) h, COUNT(*) p FROM plays WHERE day = ? GROUP BY h`),
+  vTotal: db.prepare('SELECT COUNT(*) v, COUNT(DISTINCT vid) u FROM visits WHERE day BETWEEN ? AND ?'),
+  pTotal: db.prepare('SELECT COUNT(*) p FROM plays WHERE day BETWEEN ? AND ?'),
+  countries: db.prepare('SELECT country, COUNT(*) n, COUNT(DISTINCT vid) u FROM visits WHERE day BETWEEN ? AND ? GROUP BY country ORDER BY n DESC LIMIT 20'),
+  devices: db.prepare('SELECT device, COUNT(*) n FROM visits WHERE day BETWEEN ? AND ? GROUP BY device ORDER BY n DESC'),
+  refs: db.prepare("SELECT ref, COUNT(*) n FROM visits WHERE day BETWEEN ? AND ? AND ref IS NOT NULL AND ref != '' GROUP BY ref ORDER BY n DESC LIMIT 10"),
   getSettings: db.prepare('SELECT key, value FROM settings'),
   setSetting: db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'),
 };
@@ -224,6 +228,8 @@ const qp = {
   bySlug: db.prepare("SELECT * FROM posts WHERE lang = ? AND slug = ? AND status = 'published'"),
   slugTaken: db.prepare('SELECT id FROM posts WHERE lang = ? AND slug = ? AND id != ?'),
   published: db.prepare("SELECT id, lang, slug, title, description, excerpt, cover, cover_alt, published_at, updated_at FROM posts WHERE status = 'published' AND lang = ? ORDER BY published_at DESC LIMIT ?"),
+  publishedPage: db.prepare("SELECT id, lang, slug, title, description, excerpt, cover, cover_alt, published_at, updated_at FROM posts WHERE status = 'published' AND lang = ? ORDER BY published_at DESC LIMIT ? OFFSET ?"),
+  publishedCount: db.prepare("SELECT COUNT(*) n FROM posts WHERE status = 'published' AND lang = ?"),
   publishedAll: db.prepare("SELECT lang, slug, title, cover, published_at, updated_at FROM posts WHERE status = 'published' ORDER BY published_at DESC"),
   del: db.prepare('DELETE FROM posts WHERE id = ?'),
 };
@@ -430,27 +436,32 @@ module.exports = {
     const ts = Date.now();
     qa.play.run(ts, dayOf(ts), mode, country || 'XX');
   },
-  // Thống kê `days` ngày gần nhất (tính cả hôm nay), ngày trống được điền 0.
-  stats(days) {
-    const now = Date.now();
-    const since = dayOf(now - (days - 1) * 86400_000), today = dayOf(now);
-    const v = new Map(qa.vDaily.all(since).map(r => [r.day, r]));
-    const p = new Map(qa.pDaily.all(since).map(r => [r.day, r]));
-    const daily = [];
-    for (let i = days - 1; i >= 0; i--) {
-      const d = dayOf(now - i * 86400_000);
-      daily.push({ day: d, visits: Number(v.get(d)?.v || 0), visitors: Number(v.get(d)?.u || 0), plays: Number(p.get(d)?.p || 0) });
-    }
-    const vt = qa.vTotal.get(since), vToday = qa.vTotal.get(today);
+  // Thống kê khoảng ngày from..to (YYYY-MM-DD, tính cả 2 đầu) + tổng của kỳ trước prevFrom..prevTo để so sánh.
+  // Khoảng 1 ngày thì chia theo giờ (hourly), dài hơn thì theo ngày (daily); ô trống được điền 0.
+  stats({ from, to, prevFrom, prevTo }) {
     const num = x => Number(x || 0);
-    return {
-      days, daily,
-      total: { visits: num(vt.v), visitors: num(vt.u), plays: num(qa.pTotal.get(since).p) },
-      today: { visits: num(vToday.v), visitors: num(vToday.u), plays: num(qa.pTotal.get(today).p) },
-      countries: qa.countries.all(since).map(r => ({ country: r.country || 'XX', visits: num(r.n), visitors: num(r.u) })),
-      devices: qa.devices.all(since).map(r => ({ device: r.device || 'desktop', visits: num(r.n) })),
-      referrers: qa.refs.all(since).map(r => ({ ref: r.ref, visits: num(r.n) })),
-    };
+    const total = (a, b) => { const v = qa.vTotal.get(a, b); return { visits: num(v.v), visitors: num(v.u), plays: num(qa.pTotal.get(a, b).p) }; };
+    const out = { from, to, prevFrom, prevTo, total: total(from, to), prev: total(prevFrom, prevTo) };
+    if (from === to) {
+      const v = new Map(qa.vHourly.all(from).map(r => [num(r.h), r]));
+      const p = new Map(qa.pHourly.all(from).map(r => [num(r.h), r]));
+      // hôm nay thì chỉ tới giờ hiện tại
+      const last = from === dayOf(Date.now()) ? new Date(Date.now() + TZ_OFFSET_MS).getUTCHours() : 23;
+      out.hourly = [];
+      for (let h = 0; h <= last; h++) out.hourly.push({ hour: h, visits: num(v.get(h)?.v), visitors: num(v.get(h)?.u), plays: num(p.get(h)?.p) });
+    } else {
+      const v = new Map(qa.vDaily.all(from, to).map(r => [r.day, r]));
+      const p = new Map(qa.pDaily.all(from, to).map(r => [r.day, r]));
+      out.daily = [];
+      for (let t = Date.parse(from + 'T00:00:00Z'), end = Date.parse(to + 'T00:00:00Z'); t <= end; t += 86400_000) {
+        const d = new Date(t).toISOString().slice(0, 10);
+        out.daily.push({ day: d, visits: num(v.get(d)?.v), visitors: num(v.get(d)?.u), plays: num(p.get(d)?.p) });
+      }
+    }
+    out.countries = qa.countries.all(from, to).map(r => ({ country: r.country || 'XX', visits: num(r.n), visitors: num(r.u) }));
+    out.devices = qa.devices.all(from, to).map(r => ({ device: r.device || 'desktop', visits: num(r.n) }));
+    out.referrers = qa.refs.all(from, to).map(r => ({ ref: r.ref, visits: num(r.n) }));
+    return out;
   },
   getSettings() {
     return Object.fromEntries(qa.getSettings.all().map(r => [r.key, r.value]));
@@ -464,6 +475,10 @@ module.exports = {
   getPost(id) { return postRow(qp.byId.get(id)); },
   publishedPost(lang, slug) { return postRow(qp.bySlug.get(lang, slug)); },
   publishedPosts(lang, limit = 500) { return qp.published.all(lang, limit).map(postRow); },
+  // Một trang danh sách bài (mới nhất trước) + tổng số bài đã đăng của ngôn ngữ đó
+  publishedPage(lang, limit, offset) {
+    return { posts: qp.publishedPage.all(lang, limit, offset).map(postRow), total: Number(qp.publishedCount.get(lang).n) };
+  },
   allPublishedPosts() { return qp.publishedAll.all().map(postRow); },
   slugTaken(lang, slug, exceptId = 0) { return !!qp.slugTaken.get(lang, slug, exceptId); },
   // Lưu bài (tạo mới khi không có id). Lần đầu chuyển sang "published" thì ghi ngày đăng.

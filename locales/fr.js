@@ -200,6 +200,7 @@ module.exports = {
     ctaBtn: 'Jouer à GameSlither',
     photo: 'Photo :',
     allPosts: 'Tous les articles',
+    page: 'Page {n}', newer: '← Articles récents', older: 'Articles plus anciens →', pages: 'Pagination',
   },
   server: {
     inQueue: 'Vous êtes dans la file d’un salon payant.', noRoom: 'Salon introuvable.', roomFull: 'Ce salon est complet.',

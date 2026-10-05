@@ -200,6 +200,7 @@ module.exports = {
     ctaBtn: 'العب GameSlither الآن',
     photo: 'الصورة:',
     allPosts: 'كل المقالات',
+    page: 'الصفحة {n}', newer: '→ مقالات أحدث', older: 'مقالات أقدم ←', pages: 'الصفحات',
   },
   server: {
     inQueue: 'أنت في قائمة انتظار غرفة مدفوعة.', noRoom: 'لم يتم العثور على الغرفة.', roomFull: 'هذه الغرفة ممتلئة.',

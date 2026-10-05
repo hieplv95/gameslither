@@ -42,6 +42,20 @@ textarea { resize: vertical; }
 .range { display: flex; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 3px; }
 .range button { background: none; border: 0; color: var(--muted); padding: 6px 12px; border-radius: 8px; font-weight: 600; font-size: 14px; }
 .range button.on { background: var(--surface-2); color: var(--text); }
+.range-text { color: var(--muted); font-size: 13px; margin-top: 2px; }
+.range-box { display: grid; justify-items: end; gap: 8px; }
+.custom-range { display: flex; align-items: end; gap: 8px; }
+.custom-range label { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.custom-range input { width: auto; padding: 6px 8px; color-scheme: dark; }
+.custom-range .btn { padding: 7px 16px; }
+.kpi-sub .up { color: #3fcf6e; font-weight: 700; }
+.kpi-sub .down { color: #ff7b7b; font-weight: 700; }
+@media (max-width: 640px) {
+  .range-box { justify-items: stretch; width: 100%; }
+  #statsRange { flex-wrap: wrap; }
+  #statsRange button { flex: 1 0 auto; white-space: nowrap; }
+  .custom-range { flex-wrap: wrap; }
+}
 
 .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 14px; }
 .kpi { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px; }

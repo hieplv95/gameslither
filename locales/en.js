@@ -167,6 +167,7 @@ module.exports = {
     ctaBtn: 'Play GameSlither now',
     photo: 'Photo:',
     allPosts: 'All articles',
+    page: 'Page {n}', newer: '← Newer posts', older: 'Older posts →', pages: 'Pages',
   },
   server: {
     inQueue: 'You are in a paid-room queue.', noRoom: 'Room not found.', roomFull: 'This room is full.',

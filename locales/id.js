@@ -200,6 +200,7 @@ module.exports = {
     ctaBtn: 'Main GameSlither sekarang',
     photo: 'Foto:',
     allPosts: 'Semua artikel',
+    page: 'Halaman {n}', newer: '← Artikel terbaru', older: 'Artikel lama →', pages: 'Halaman',
   },
   server: {
     inQueue: 'Kamu sedang dalam antrean room berbayar.', noRoom: 'Room tidak ditemukan.', roomFull: 'Room ini penuh.',

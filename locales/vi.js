@@ -166,6 +166,7 @@ module.exports = {
     ctaBtn: 'Chơi GameSlither ngay',
     photo: 'Ảnh:',
     allPosts: 'Tất cả bài viết',
+    page: 'Trang {n}', newer: '← Bài mới hơn', older: 'Bài cũ hơn →', pages: 'Phân trang',
   },
   server: {
     inQueue: 'Bạn đang trong hàng chờ phòng mất phí.', noRoom: 'Không tìm thấy phòng này.', roomFull: 'Phòng đã đầy.',

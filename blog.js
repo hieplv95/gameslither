@@ -238,29 +238,62 @@ const org = { '@type': 'Organization', '@id': '{{SITE_URL}}/#org', name: 'GameSl
 const crumbs = items => ({ '@type': 'BreadcrumbList', itemListElement: items.map(([name, url], i) => ({ '@type': 'ListItem', position: i + 1, name, item: `{{SITE_URL}}${url}` })) });
 
 // ---------------------------------------------------------------- trang danh sách
-function renderIndex(L) {
-  const b = L.blog, posts = db.publishedPosts(L.code);
+// Phân trang: trang 1 ở /blog/, trang n ở /blog/page/n/ — mỗi trang có canonical riêng để Google thu thập được bài cũ.
+const PER_PAGE = 12;
+const pagePath = (L, n) => (n > 1 ? `${blogPath(L)}page/${n}/` : blogPath(L));
+
+// Thanh phân trang: Mới hơn · 1 … 4 5 [6] 7 8 … 20 · Cũ hơn
+function pager(L, page, pages) {
+  if (pages < 2) return '';
+  const b = L.blog, nums = [];
+  for (let n = 1; n <= pages; n++) {
+    if (n === 1 || n === pages || Math.abs(n - page) <= 2) nums.push(n);
+    else if (nums[nums.length - 1] !== '…') nums.push('…');
+  }
+  const link = (n, text, rel) => `<a href="${pagePath(L, n)}"${rel ? ` rel="${rel}"` : ''}>${esc(text)}</a>`;
+  return `<nav class="pager" aria-label="${esc(b.pages)}">
+      ${page > 1 ? link(page - 1, b.newer, 'prev') : ''}
+      <span class="pager-nums">${nums.map(n => (n === '…' ? '<span class="gap">…</span>'
+        : n === page ? `<span aria-current="page">${n}</span>` : link(n, String(n)))).join('')}</span>
+      ${page < pages ? link(page + 1, b.older, 'next') : ''}
+    </nav>`;
+}
+
+// Trả về null nếu số trang vượt quá (→ 404).
+function renderIndex(L, page = 1) {
+  const b = L.blog;
+  const { posts, total } = db.publishedPage(L.code, PER_PAGE, (page - 1) * PER_PAGE);
+  const pages = Math.max(1, Math.ceil(total / PER_PAGE));
+  if (page > pages) return null;
   const langs = langsWithPosts();
-  const alternates = posts.length ? [...langs.map(l => [l.hreflang, blogPath(l)])] : [];
-  const body = `    <nav class="crumbs" aria-label="Breadcrumb"><a href="${L.path}">${esc(b.home)}</a> › <span aria-current="page">${esc(b.nav)}</span></nav>
+  // trang 2 trở đi chỉ có ở ngôn ngữ này nên không gắn hreflang
+  const alternates = total && page === 1 ? [...langs.map(l => [l.hreflang, blogPath(l)])] : [];
+  const suffix = page > 1 ? ` – ${b.page.replace('{n}', page)}` : '';
+  const url = pagePath(L, page);
+  const body = `    <nav class="crumbs" aria-label="Breadcrumb"><a href="${L.path}">${esc(b.home)}</a> › ${page > 1
+      ? `<a href="${blogPath(L)}">${esc(b.nav)}</a> › <span aria-current="page">${esc(b.page.replace('{n}', page))}</span>`
+      : `<span aria-current="page">${esc(b.nav)}</span>`}</nav>
     <header class="blog-head">
-      <h1>${esc(b.h1)}</h1>
-      <p class="lead">${esc(b.intro)}</p>
+      <h1>${esc(b.h1)}${esc(suffix)}</h1>
+      ${page === 1 ? `<p class="lead">${esc(b.intro)}</p>` : ''}
     </header>
     ${posts.length ? `<div class="post-grid">
     ${posts.map(p => card(L, p)).join('\n    ')}
-    </div>` : `<p class="empty">${esc(b.empty)}</p>`}
+    </div>
+    ${pager(L, page, pages)}` : `<p class="empty">${esc(b.empty)}</p>`}
     ${cta(L)}`;
   return shell(L, {
-    title: b.title, description: b.description, canonical: blogPath(L), section: 'blog', alternates,
-    robots: posts.length ? undefined : 'noindex, follow',   // trang rỗng: không cho lập chỉ mục (tránh nội dung mỏng)
+    title: b.title + suffix, description: b.description + suffix, canonical: url, section: 'blog', alternates,
+    robots: total ? undefined : 'noindex, follow',   // trang rỗng: không cho lập chỉ mục (tránh nội dung mỏng)
     image: posts[0] && posts[0].cover, imageAlt: posts[0] && posts[0].cover_alt,
+    extraMeta: [page > 1 && `<link rel="prev" href="{{SITE_URL}}${pagePath(L, page - 1)}">`,
+      page < pages && `<link rel="next" href="{{SITE_URL}}${pagePath(L, page + 1)}">`].filter(Boolean).join('\n  '),
     jsonLd: { '@context': 'https://schema.org', '@graph': [org,
       { '@type': 'Blog', '@id': `{{SITE_URL}}${blogPath(L)}#blog`, name: b.h1, description: b.description, url: `{{SITE_URL}}${blogPath(L)}`,
         inLanguage: L.htmlLang, publisher: { '@id': '{{SITE_URL}}/#org' },
-        blogPost: posts.slice(0, 20).map(p => ({ '@type': 'BlogPosting', headline: p.title, url: `{{SITE_URL}}${postPath(L, p.slug)}`,
+        blogPost: posts.map(p => ({ '@type': 'BlogPosting', headline: p.title, url: `{{SITE_URL}}${postPath(L, p.slug)}`,
           datePublished: new Date(p.published_at).toISOString(), ...(isRaster(p.cover) ? { image: `{{SITE_URL}}${p.cover}` } : {}) })) },
-      crumbs([[b.home, L.path], [b.nav, blogPath(L)]])] },
+      crumbs(page > 1 ? [[b.home, L.path], [b.nav, blogPath(L)], [b.page.replace('{n}', page), url]] : [[b.home, L.path], [b.nav, blogPath(L)]])] },
     body,
   });
 }
@@ -366,6 +399,14 @@ function route(p) {
     const rest = p.slice(base.length);
     if (rest === '') return { code: 200, type: 'text/html; charset=utf-8', body: renderIndex(L) };
     if (rest === 'rss.xml') return { code: 200, type: 'application/rss+xml; charset=utf-8', body: renderRss(L) };
+    const pm = rest.match(/^page\/(\d{1,4})(\/?)$/);
+    if (pm) {
+      const n = Number(pm[1]);
+      if (n < 1) return null;
+      if (n === 1 || pm[1] !== String(n) || !pm[2]) return { code: 301, location: pagePath(L, n) };   // /page/1/, /page/02, thiếu "/"
+      const body = renderIndex(L, n);
+      return body ? { code: 200, type: 'text/html; charset=utf-8', body } : null;
+    }
     const slug = rest.replace(/\/$/, '');
     if (!SLUG_RE.test(slug)) return null;
     if (rest.endsWith('/')) return { code: 301, location: postPath(L, slug) };

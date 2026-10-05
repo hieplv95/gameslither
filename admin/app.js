@@ -109,17 +109,36 @@
   }
 
   // ---------------------------------------------------------------- thống kê
-  let days = 30, stats = null;
-  for (const b of document.querySelectorAll('.range button')) {
+  // Khoảng thời gian: today | yesterday | week | month | custom (chọn ngày từ–đến). Ngày tính theo giờ Việt Nam.
+  let range = 'month', stats = null;
+  const vnToday = () => new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10);
+  const addDays = (d, k) => new Date(Date.parse(d + 'T00:00:00Z') + k * 86400_000).toISOString().slice(0, 10);
+  for (const b of document.querySelectorAll('#statsRange button')) {
     b.onclick = () => {
-      days = Number(b.dataset.days);
-      for (const x of document.querySelectorAll('.range button')) x.classList.toggle('on', x === b);
+      range = b.dataset.range;
+      for (const x of document.querySelectorAll('#statsRange button')) x.classList.toggle('on', x === b);
+      show('customRange', range === 'custom');
+      if (range === 'custom') {
+        const today = vnToday();
+        for (const id of ['rangeFrom', 'rangeTo']) $(id).max = today;
+        if (!$('rangeTo').value) $('rangeTo').value = today;
+        if (!$('rangeFrom').value) $('rangeFrom').value = addDays(today, -29);
+        $('rangeFrom').focus();
+      }
       loadStats();
     };
   }
+  $('customRange').onsubmit = e => { e.preventDefault(); loadStats(); };
   async function loadStats() {
+    let q = `range=${range}`;
+    if (range === 'custom') {
+      const from = $('rangeFrom').value, to = $('rangeTo').value;
+      if (!from || !to) return;
+      if (from > to) return toast('Ngày bắt đầu phải trước ngày kết thúc.', true);
+      q += `&from=${from}&to=${to}`;
+    }
     try {
-      stats = await api('GET', `/admin/api/stats?days=${days}`);
+      stats = await api('GET', `/admin/api/stats?${q}`);
       renderStats();
     } catch (e) {
       if (e.status === 401) location.reload();
@@ -133,15 +152,40 @@
     { key: 'plays', name: 'Lượt chơi', color: '--series-3' },
   ];
   const dm = d => `${d.slice(8, 10)}/${d.slice(5, 7)}`;
+  const dmy = d => `${dm(d)}/${d.slice(0, 4)}`;
+  const span = (a, b) => (a === b ? dmy(a) : `${a.slice(0, 4) === b.slice(0, 4) ? dm(a) : dmy(a)} – ${dmy(b)}`);
+  const longDay = d => new Date(d + 'T00:00:00').toLocaleDateString('vi-VN', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' });
+  const PREV_LABEL = { today: 'Hôm qua', yesterday: 'Hôm kia', week: 'Tuần trước', month: 'Tháng trước', custom: 'Kỳ trước' };
+  // Các điểm của biểu đồ/bảng: theo giờ (khoảng 1 ngày) hoặc theo ngày
+  function points() {
+    const s = stats, pad = n => String(n).padStart(2, '0');
+    if (s.hourly) return s.hourly.map(h => ({ ...h, label: `${pad(h.hour)}h`, title: `${longDay(s.from)} · ${pad(h.hour)}:00–${pad(h.hour)}:59` }));
+    return s.daily.map(d => ({ ...d, label: dm(d.day), title: longDay(d.day) }));
+  }
+  // "Hôm qua: 120 ▲ 15%" — so với kỳ trước
+  function compare(el, cur, prev) {
+    el.textContent = `${PREV_LABEL[stats.range]}: ${fmt(prev)} `;
+    if (!prev && !cur) return;
+    const d = document.createElement('span');
+    if (!prev) { d.className = 'up'; d.textContent = '▲ mới'; }
+    else {
+      const pct = Math.round((cur - prev) / prev * 100);
+      d.className = pct > 0 ? 'up' : pct < 0 ? 'down' : '';
+      d.textContent = pct > 0 ? `▲ ${pct}%` : pct < 0 ? `▼ ${-pct}%` : '= 0%';
+    }
+    el.appendChild(d);
+  }
 
   function renderStats() {
     const s = stats;
+    $('rangeText').textContent = `${s.from === s.to ? longDay(s.from) : span(s.from, s.to)} · so với ${span(s.prevFrom, s.prevTo)}`;
+    $('chartTitle').textContent = s.hourly ? 'Theo giờ' : 'Theo ngày';
     $('kVisits').textContent = fmt(s.total.visits);
     $('kVisitors').textContent = fmt(s.total.visitors);
     $('kPlays').textContent = fmt(s.total.plays);
-    $('kVisitsToday').textContent = `Hôm nay: ${fmt(s.today.visits)}`;
-    $('kVisitorsToday').textContent = `Hôm nay: ${fmt(s.today.visitors)}`;
-    $('kPlaysToday').textContent = `Hôm nay: ${fmt(s.today.plays)}`;
+    compare($('kVisitsToday'), s.total.visits, s.prev.visits);
+    compare($('kVisitorsToday'), s.total.visitors, s.prev.visitors);
+    compare($('kPlaysToday'), s.total.plays, s.prev.plays);
     $('kOnline').textContent = fmt(s.live.online);
     $('kPlaying').textContent = `${fmt(s.live.playing)} người đang trong ván`;
 
@@ -191,11 +235,11 @@
     const t = $('dailyTable');
     t.textContent = '';
     const head = t.createTHead().insertRow();
-    for (const h of ['Ngày', ...SERIES.map(s => s.name)]) { const th = document.createElement('th'); th.textContent = h; head.appendChild(th); }
+    for (const h of [stats.hourly ? 'Giờ' : 'Ngày', ...SERIES.map(s => s.name)]) { const th = document.createElement('th'); th.textContent = h; head.appendChild(th); }
     const body = t.createTBody();
-    for (const d of [...stats.daily].reverse()) {
+    for (const d of points().reverse()) {
       const tr = body.insertRow();
-      tr.insertCell().textContent = dm(d.day);
+      tr.insertCell().textContent = d.label;
       for (const s of SERIES) tr.insertCell().textContent = fmt(d[s.key]);
     }
   }
@@ -215,12 +259,12 @@
     if (!W) return;
     box.querySelector('svg')?.remove();
     const M = { l: 40, r: 108, t: 12, b: 26 };
-    const data = stats.daily, n = data.length;
+    const data = points(), n = data.length;
     const ticks = niceTicks(Math.max(1, ...data.flatMap(d => SERIES.map(s => d[s.key]))));
     const yMax = ticks.top;
     const x = i => M.l + (n === 1 ? 0 : i / (n - 1)) * (W - M.l - M.r);
     const y = v => M.t + (1 - v / yMax) * (H - M.t - M.b);
-    const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': `Biểu đồ lượt truy cập, khách và lượt chơi ${n} ngày gần nhất` });
+    const svg = svgEl('svg', { viewBox: `0 0 ${W} ${H}`, role: 'img', 'aria-label': `Biểu đồ lượt truy cập, khách và lượt chơi ${stats.hourly ? 'theo giờ' : 'theo ngày'}, ${$('rangeText').textContent}` });
     box.insertBefore(svg, $('tooltip'));
 
     for (let k = 0; k <= ticks.count; k++) {
@@ -230,7 +274,7 @@
     }
     const step = Math.max(1, Math.ceil(n / 7));
     for (let i = 0; i < n; i += step) {
-      svgEl('text', { x: x(i), y: H - 6, 'text-anchor': i === 0 ? 'start' : 'middle', class: 'tick' }, svg).textContent = dm(data[i].day);
+      svgEl('text', { x: x(i), y: H - 6, 'text-anchor': i === 0 ? 'start' : 'middle', class: 'tick' }, svg).textContent = data[i].label;
     }
 
     const ends = [];
@@ -262,7 +306,7 @@
       cross.setAttribute('x1', cx); cross.setAttribute('x2', cx); cross.setAttribute('visibility', 'visible');
       SERIES.forEach((s, k) => { dots[k].setAttribute('cx', cx); dots[k].setAttribute('cy', y(data[i][s.key])); dots[k].setAttribute('visibility', 'visible'); });
       tip.textContent = '';
-      const b = document.createElement('b'); b.textContent = new Date(data[i].day + 'T00:00:00').toLocaleDateString('vi-VN', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' });
+      const b = document.createElement('b'); b.textContent = data[i].title;
       tip.appendChild(b);
       for (const s of SERIES) {
         const row = document.createElement('div'); row.className = 'row';
