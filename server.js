@@ -21,7 +21,8 @@ const COUNTDOWN_MS = 10_000;
 const FREE_CAP = 50;
 // Số "đang online" ở sảnh = ONLINE_BASE + số kết nối thật (trang quản trị vẫn dùng số thật). Đặt ONLINE_BASE=0 để hiện đúng số thật.
 const ONLINE_BASE = Math.max(0, Math.floor(Number(process.env.ONLINE_BASE ?? 500)) || 0);
-const FREE_BOTS = 18;
+// Số rắn mỗi phòng miễn phí luôn giữ (người + bot): người vào thì bot rút bớt, nhưng luôn còn ít nhất 6 bot.
+const FREE_BOTS = Math.max(0, Math.min(80, Math.floor(Number(process.env.FREE_BOTS ?? 40)) || 0));
 const MIN_WITHDRAW = 2;                                 // USDT
 const U = db.UNIT;
 // Cửa hàng mẫu rắn: xu chỉ kiếm được ở phòng miễn phí, cộng khi rắn chết.

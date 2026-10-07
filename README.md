@@ -45,6 +45,7 @@ Biến môi trường:
 | `PORT` | 3000 | cổng server |
 | `PAID_MODE` | tắt | `1` để bật chế độ chơi mất phí + ví. Khi tắt, server gỡ hẳn các phần liên quan khỏi trang và từ chối mọi yêu cầu nạp/rút/vào phòng mất phí |
 | `FOOD_MULT` | 2 | hệ số lượng mồi (1 = 2.200 viên mỗi phòng miễn phí, 2 = 4.400; tối đa 5) |
+| `FREE_BOTS` | 40 | số rắn mỗi phòng miễn phí luôn giữ, tính cả người và bot (người vào thì bot rút bớt, luôn còn ít nhất 6 bot; tối đa 80) |
 | `PAID_ROOM_SIZE` | 15 | số người mỗi phòng mất phí (đặt 2 để tự thử) |
 | `DEMO` | 1 | `0` để tắt nút nạp tiền ảo |
 | `DB_PATH` | `data.sqlite` | file cơ sở dữ liệu |
