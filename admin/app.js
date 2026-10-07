@@ -110,7 +110,7 @@
 
   // ---------------------------------------------------------------- thống kê
   // Khoảng thời gian: today | yesterday | week | month | custom (chọn ngày từ–đến). Ngày tính theo giờ Việt Nam.
-  let range = 'month', stats = null;
+  let range = 'today', stats = null;
   const vnToday = () => new Date(Date.now() + 7 * 3600_000).toISOString().slice(0, 10);
   const addDays = (d, k) => new Date(Date.parse(d + 'T00:00:00Z') + k * 86400_000).toISOString().slice(0, 10);
   for (const b of document.querySelectorAll('#statsRange button')) {

@@ -119,7 +119,7 @@ function trackVisit(req) {
 }
 
 // ---------------------------------------------------------------- HTTP helpers
-// Khoảng thống kê (ngày theo giờ Việt Nam): range = today | yesterday | week (từ thứ Hai) | month | custom (from, to).
+// Khoảng thống kê (ngày theo giờ Việt Nam, mặc định hôm nay): range = today | yesterday | week (từ thứ Hai) | month | custom (from, to).
 // Kèm kỳ trước để so sánh: hôm qua / hôm kia / tuần trước / tháng trước (cùng số ngày) / đoạn liền trước cùng độ dài.
 // Trả về null nếu khoảng tuỳ chỉnh không hợp lệ.
 const DAY_MS = 86400_000;
@@ -127,7 +127,7 @@ const dayNum = d => Date.parse(d + 'T00:00:00Z') / DAY_MS;            // YYYY-MM
 const numDay = n => new Date(n * DAY_MS).toISOString().slice(0, 10);   // ngược lại
 function statsRange(params) {
   const today = db.dayOf(Date.now()), t = dayNum(today);
-  const range = params.get('range') || 'month';
+  const range = params.get('range') || 'today';
   const shift = (from, to, k) => ({ prevFrom: numDay(dayNum(from) - k), prevTo: numDay(dayNum(to) - k) });
   if (range === 'today') return { range, from: today, to: today, ...shift(today, today, 1) };
   if (range === 'yesterday') { const y = numDay(t - 1); return { range, from: y, to: y, ...shift(y, y, 1) }; }
