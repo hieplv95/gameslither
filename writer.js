@@ -38,14 +38,59 @@ function capabilities() {
 // ---------------------------------------------------------------- bối cảnh website
 const SITE_FACTS = `GameSlither is a free, browser-based multiplayer online snake game in the style of Slither.io.
 - Players steer a snake with the mouse or touch, eat glowing pellets to grow, and try to make other snakes crash into their body.
-- Boost: hold left click, Space or the ⚡ button (boosting costs length).
-- Up to 50 players per public room, public rooms also have AI snakes; real-time leaderboard and minimap.
-- Private rooms: create a room and share its 4-character code with friends.
+- Boost: hold left click, Space or the ⚡ button (boosting costs length and drops pellets behind you).
+- Public rooms always hold about 40 snakes: real players plus AI snakes that step aside as more players join (up to 50 players per room). AI snakes have three personalities: shy ones avoid bigger snakes, hunters try to cut off smaller snakes, gluttons rush to the pellets of defeated snakes.
+- Real-time leaderboard, minimap, kill feed ("X defeated Y"), explosion effects, sound effects (with mute button) and vibration on phones.
+- After each death a result screen shows max length, kills, time alive, best rank and coins earned, with a Share button that creates a result image.
+- Private rooms: create a room and share its 4-character code or an invite link (?room=CODE) with friends.
 - 6 free snake skins: Classic (12 colors), Neon Cyber, Golden Dragon, Rainbow Candy, Jungle Python, Galaxy.
-- Skin shop: free play earns coins (+1 per 10 length reached, +5 per snake taken down) to buy 23 country-flag skins (the 20 most populous countries plus the UK, Italy and Spain). Coins have no money value.
+- Coins: free play earns coins (+1 per 10 length reached, +5 per snake taken down). Coins have no money value. The shop sells 23 country-flag skins (the 20 most populous countries plus the UK, Italy and Spain) for 500 coins each.
+- Daily missions: 3 new missions every day (play N games, defeat N snakes, reach a length, survive N minutes in one life) that pay coins instantly.
+- Daily login reward: 20 → 200 coins for days 1–7 of a login streak, then the cycle repeats.
+- 4 achievement skins that cannot be bought: Inferno (reach length 1,500 in one life), Frost (survive 10 minutes in one life), Shadow (defeat 5 snakes in one life), Aurora (log in 7 days in a row).
+- Hall of fame: weekly (from Monday) and all-time rankings of the longest snake in one life.
+- Account recovery code to restore coins and skins on another device or after clearing browser data.
 - Works on desktop, mobile and tablet browsers; no download, no sign-up.
 - Available in 11 languages.
 GameSlither is independent and NOT affiliated with Slither.io or Lowtech Studios. "Slither io" may be used only to describe the genre/style.`;
+
+// Nhóm chủ đề: dùng để ép gợi ý đa dạng, chọn hướng trong trang quản trị và thống kê độ phủ của blog.
+// label hiện trong trang quản trị, hint giải thích cho AI.
+const CLUSTERS = [
+  { key: 'genre', label: 'Từ khoá thể loại (slither io…)', hint: 'searches that use the genre name "slither io" / "slither.io style" (the genre term itself)' },
+  { key: 'generic', label: 'Game rắn nói chung', hint: 'generic snake-game searches without the word slither, as natives type them (e.g. "snake game online", Vietnamese "game rắn săn mồi")' },
+  { key: 'io', label: 'Game .io nói chung', hint: '.io games and free browser multiplayer games in general (best io games, games like agar.io…)' },
+  { key: 'compare', label: 'So sánh game khác', hint: 'comparisons and alternatives: Agar.io, Wormate.io, Little Big Snake, Snake.io, Google Snake, Nokia Snake…' },
+  { key: 'strategy', label: 'Mẹo & chiến thuật', hint: 'advanced tactics: encircling, cutting off, boosting, surviving big fights, growing fast' },
+  { key: 'beginner', label: 'Người mới', hint: 'first steps, controls, common beginner mistakes, how to play' },
+  { key: 'skins', label: 'Skin, xu & thành tích', hint: 'skins, coins, the shop, achievement skins, daily missions, login rewards' },
+  { key: 'friends', label: 'Chơi với bạn bè', hint: 'private rooms, invite links, playing with friends, family or classmates, mini tournaments' },
+  { key: 'mobile', label: 'Điện thoại & thiết bị', hint: 'playing on phones, tablets, Chromebooks, school computers; lag, controls and performance on devices' },
+  { key: 'culture', label: 'Lịch sử & văn hoá game rắn', hint: 'history of snake games (Nokia, arcade Blockade), records, trivia, psychology, why snake games are addictive' },
+  { key: 'parents', label: 'Phụ huynh & an toàn', hint: 'parents, teachers, kids safety, screen time, educational value' },
+  { key: 'updates', label: 'Cập nhật & tính năng mới', hint: 'GameSlither features and updates: hall of fame, missions, AI snake personalities, share cards, events' },
+];
+const CLUSTER_KEYS = CLUSTERS.map(c => c.key);
+
+// So khớp gần đúng 2 cụm chữ (bỏ dấu, chữ thường): từng từ với ngôn ngữ có dấu cách, từng cặp ký tự với tiếng Trung/Nhật.
+function tokens(s) {
+  const t = String(s).toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd');
+  if (/[぀-ヿ㐀-鿿]/.test(t)) {
+    const c = t.replace(/[^\p{L}\p{N}]/gu, '');
+    const out = new Set();
+    for (let i = 0; i < c.length - 1; i++) out.add(c.slice(i, i + 2));
+    return out;
+  }
+  return new Set(t.split(/[^\p{L}\p{N}]+/u).filter(w => w.length > 1));
+}
+function similarity(a, b) {
+  const A = tokens(a), B = tokens(b);
+  if (!A.size || !B.size) return 0;
+  let n = 0;
+  for (const x of A) if (B.has(x)) n++;
+  return n / (A.size + B.size - n);
+}
+const sameKeyword = (a, b) => [...tokens(a)].sort().join(' ') === [...tokens(b)].sort().join(' ');
 
 const LENGTHS = { short: '700–900', medium: '1300–1600', long: '2200–2600' };
 const TONES = {
@@ -91,39 +136,107 @@ function friendlyError(e) {
 
 // ---------------------------------------------------------------- gợi ý chủ đề
 const TOPICS_SCHEMA = {
-  type: 'object', additionalProperties: false, required: ['topics'],
+  type: 'object', additionalProperties: false, required: ['topics', 'classified'],
   properties: {
     topics: {
       type: 'array',
       items: {
-        type: 'object', additionalProperties: false, required: ['title', 'keyword', 'intent', 'angle'],
+        type: 'object', additionalProperties: false, required: ['title', 'keyword', 'cluster', 'intent', 'difficulty', 'priority', 'angle'],
         properties: {
           title: { type: 'string', description: 'Working headline in the target language' },
-          keyword: { type: 'string', description: 'Main search keyword in the target language, as people actually type it' },
+          keyword: { type: 'string', description: 'Main search keyword in the target language, exactly as native speakers type it into Google' },
+          cluster: { type: 'string', enum: CLUSTER_KEYS },
           intent: { type: 'string', enum: ['informational', 'how-to', 'comparison', 'list', 'news'] },
+          difficulty: { type: 'string', enum: ['low', 'medium', 'high'], description: 'How hard it is for a small new site to reach page 1 for the keyword' },
+          priority: { type: 'string', enum: ['high', 'medium', 'low'], description: 'Overall value for this blog now: demand, ranking chance, fit with the game, gap in coverage' },
           angle: { type: 'string', description: 'One sentence (target language): what makes this article useful/unique' },
         },
+      },
+    },
+    classified: {
+      type: 'array', description: 'One entry per article listed under "Unclassified existing articles" (empty array if none)',
+      items: {
+        type: 'object', additionalProperties: false, required: ['id', 'cluster'],
+        properties: { id: { type: 'integer' }, cluster: { type: 'string', enum: CLUSTER_KEYS } },
       },
     },
   },
 };
 
-async function suggestTopics({ lang, seed = '', count = 10 }) {
+const GENRE_RE = /slither/i;
+const MAX_PER_CLUSTER = 2, MAX_GENRE = 2;
+
+// Gợi ý chủ đề. clusters: các nhóm biên tập viên chọn (rỗng = trộn đa dạng). Trả về { topics, classified }:
+// topics đã lọc trùng (với bài đã có + các gợi ý trước đó) và kèm cảnh báo `similar` nếu gần giống một bài đã có;
+// classified = nhóm cho các bài cũ chưa phân loại.
+async function suggestTopics({ lang, seed = '', clusters = [], count = 10 }) {
   const L = langOf(lang);
-  const existing = db.listPosts().filter(p => p.lang === lang).map(p => `- ${p.title}`).join('\n') || '(none yet)';
+  count = Math.min(15, Math.max(3, count));
+  const picked = clusters.filter(c => CLUSTER_KEYS.includes(c));
+  const posts = db.postsOfLang(lang);
+  const past = db.recentIdeas(lang, 200);
+  const cov = db.coverage(lang);
+  const unclassified = posts.filter(p => !p.cluster).slice(0, 60);
+  const clusterList = CLUSTERS.map(c => `- ${c.key}: ${c.hint} — ${cov.posts[c.key] || 0} articles, ${cov.ideas[c.key] || 0} pending ideas`).join('\n');
+  const focus = picked.length
+    ? `Only suggest topics in these clusters: ${picked.join(', ')}. Spread the topics evenly across them, and inside a cluster vary the keyword head terms (no two keywords may start with the same two words).`
+    : `Mix clusters: use at least ${Math.min(count, 6)} different clusters, at most ${MAX_PER_CLUSTER} topics per cluster, and prefer clusters with few articles and few pending ideas.
+At most ${MAX_GENRE} keywords may contain the genre term "slither" (in any spelling). Most keywords must be ones people type WITHOUT that word.`;
   const r = await askJson({
     system: `You are an SEO content strategist for a gaming website.\n\n${SITE_FACTS}`,
-    prompt: `Suggest ${Math.min(15, Math.max(3, count))} blog article topics for the GameSlither blog, written in ${L.name} (${L.htmlLang}) for readers searching in that language.
-${seed ? `Focus area requested by the editor: "${seed}".` : 'Cover a mix: gameplay tips & strategy, beginner guides, comparisons with similar .io games, snake-game culture/history, playing with friends, mobile play.'}
-Pick topics with real search demand in that language, a clear search intent, and a realistic chance to rank for a small new site (prefer specific long-tail keywords over very broad head terms).
-Every topic must be naturally relevant to GameSlither so the article can link to the game.
-Avoid duplicating these existing articles:
-${existing}`,
+    prompt: `Suggest ${count + 4} blog article topics for the GameSlither blog, written in ${L.name} (${L.htmlLang}) for readers searching in that language.
+${seed ? `Focus area requested by the editor: "${seed}".\n` : ''}
+Topic clusters (with current coverage of this blog in ${L.name}):
+${clusterList}
+
+${focus}
+
+Keyword rules:
+- Write keywords the way native ${L.name} speakers actually search in Google — their own everyday words and spelling, not a literal translation of English keywords. English loanwords are fine only where natives really use them.
+- Prefer specific long-tail keywords with a realistic chance for a small new site over broad head terms.
+- No two topics may target the same keyword or the same search intent.
+- Every topic must be naturally relevant to GameSlither so the article can link to the game. Topics about GameSlither's own features (missions, achievement skins, hall of fame, AI snake personalities, invite links, share cards) are welcome because no other site covers them.
+
+Do NOT repeat or closely paraphrase any of these existing articles:
+${posts.map(p => `- ${p.title}${p.keywords ? ` [${p.keywords.split(',')[0].trim()}]` : ''}`).join('\n') || '(none yet)'}
+
+Do NOT repeat or closely paraphrase any of these earlier suggestions (already suggested, written or rejected by the editor):
+${past.map(i => `- ${i.title} [${i.keyword}]`).join('\n') || '(none yet)'}
+
+Unclassified existing articles — put each one into the best cluster in "classified":
+${unclassified.map(p => `- id ${p.id}: ${p.title}`).join('\n') || '(none)'}`,
     schema: TOPICS_SCHEMA,
-    maxTokens: 16000,
+    maxTokens: 24000,
     effort: 'medium',
   });
-  return (r.topics || []).slice(0, 15);
+
+  // Lọc lại phía server: AI đôi khi vẫn lặp hoặc dồn vào một nhóm
+  const taken = [...posts.map(p => ({ title: p.title, keyword: (p.keywords || '').split(',')[0] })), ...past];
+  const perCluster = {}, out = [];
+  let genre = 0;
+  for (const t of r.topics || []) {
+    if (out.length >= count) break;
+    if (!CLUSTER_KEYS.includes(t.cluster)) continue;
+    if (picked.length && !picked.includes(t.cluster)) continue;
+    if (taken.some(x => (x.keyword && sameKeyword(x.keyword, t.keyword)) || similarity(x.title, t.title) >= 0.6)) continue;
+    if (out.some(x => sameKeyword(x.keyword, t.keyword) || similarity(x.title, t.title) >= 0.6)) continue;
+    if (!picked.length) {
+      if ((perCluster[t.cluster] || 0) >= MAX_PER_CLUSTER) continue;
+      if (GENRE_RE.test(t.keyword) && genre >= MAX_GENRE) continue;
+    }
+    perCluster[t.cluster] = (perCluster[t.cluster] || 0) + 1;
+    if (GENRE_RE.test(t.keyword)) genre++;
+    // cảnh báo gần giống bài đã có (không loại, để biên tập viên tự quyết)
+    let best = null, bs = 0;
+    for (const p of posts) {
+      const s = Math.max(similarity(p.title, t.title), similarity(`${p.title} ${p.keywords}`, `${t.title} ${t.keyword}`));
+      if (s > bs) { bs = s; best = p; }
+    }
+    out.push({ ...t, similar: bs >= 0.35 ? best.title : '' });
+  }
+  const ids = new Set(unclassified.map(p => p.id));
+  const classified = (r.classified || []).filter(c => ids.has(c.id) && CLUSTER_KEYS.includes(c.cluster));
+  return { topics: out, classified };
 }
 
 // ---------------------------------------------------------------- viết bài
@@ -445,6 +558,8 @@ function startJob(opts) {
       content, faq: a.faq, cover, cover_alt: coverAlt, credit: [...new Set(credits)].join(', '), topic: opts.topic,
       status: opts.publish ? 'published' : 'draft',
     });
+    if (CLUSTER_KEYS.includes(opts.cluster)) db.setPostCluster(job.postId, opts.cluster);
+    if (opts.ideaId) db.setIdeaStatus(opts.ideaId, 'used');
     job.status = 'done';
     job.step = (opts.publish ? 'Đã đăng bài.' : 'Đã lưu bản nháp.') + (notes.length ? ` ⚠️ ${notes.join(' · ')}` : '');
   })().catch(e => {
@@ -455,5 +570,5 @@ function startJob(opts) {
   return job;
 }
 
-module.exports = { capabilities, suggestTopics: o => suggestTopics(o).catch(e => { throw new Error(friendlyError(e)); }),
+module.exports = { capabilities, CLUSTERS, suggestTopics: o => suggestTopics(o).catch(e => { throw new Error(friendlyError(e)); }),
   startJob, getJob: id => jobs.get(id) || null, makeImage, uniqueSlug, toSlug };

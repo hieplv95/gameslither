@@ -403,7 +403,7 @@
         blogLangs = r.langs;
         for (const sel of [$('gLang'), $('eLang')]) for (const l of blogLangs) sel.appendChild(el('option', { value: l.code, textContent: l.name }));
         $('gLang').value = 'en';   // ngôn ngữ viết bài mặc định
-        $('gLang').onchange = () => { $('blogView').href = `${langPath($('gLang').value)}blog/`; };
+        $('gLang').onchange = () => { $('blogView').href = `${langPath($('gLang').value)}blog/`; loadIdeas(); };
         $('gLang').onchange();
       }
       renderCaps(r.caps);
@@ -451,24 +451,93 @@
     }
   }
 
-  // --- gợi ý chủ đề
+  // --- gợi ý chủ đề: lưu lại trên server (lần sau AI không gợi ý trùng), chọn nhóm chủ đề, xem độ phủ
+  let clusters = [], picked = new Set(), ideaId = 0, fresh = new Set();
+  const clusterLabel = k => (clusters.find(c => c.key === k) || {}).label || k;
+  const DIFF = { low: ['Dễ lên top', 'easy'], medium: ['Vừa', 'mid'], high: ['Khó lên top', 'hard'] };
+  const PRIO = { high: '⭐ Ưu tiên cao', medium: 'Ưu tiên vừa', low: 'Ưu tiên thấp' };
+
+  async function loadIdeas() {
+    try { renderIdeas(await api('GET', `/admin/api/blog/ideas?lang=${$('gLang').value}`)); } catch (err) { onErr(err); }
+  }
+  function renderChips() {
+    const box = $('clusterChips');
+    box.textContent = '';
+    const mix = el('button', { type: 'button', class: 'chip' + (picked.size ? '' : ' on'), textContent: '🎲 Trộn đa dạng' });
+    mix.onclick = () => { picked.clear(); renderChips(); };
+    box.appendChild(mix);
+    for (const c of clusters) {
+      const b = el('button', { type: 'button', class: 'chip' + (picked.has(c.key) ? ' on' : ''), textContent: c.label });
+      b.setAttribute('aria-pressed', picked.has(c.key));
+      b.onclick = () => { picked.has(c.key) ? picked.delete(c.key) : picked.add(c.key); renderChips(); };
+      box.appendChild(b);
+    }
+  }
+  function renderCoverage(cov) {
+    const box = $('coverage');
+    box.textContent = '';
+    const max = Math.max(1, ...clusters.map(c => cov.posts[c.key] || 0));
+    let total = 0, empty = 0;
+    for (const c of clusters) {
+      const n = cov.posts[c.key] || 0, w = cov.ideas[c.key] || 0;
+      total += n; if (!n) empty++;
+      const row = el('button', { type: 'button', class: 'cov-row' + (n ? '' : ' empty'), title: 'Chỉ gợi ý nhóm này' },
+        el('span', { class: 'cov-name', textContent: c.label }),
+        el('span', { class: 'cov-track' }, el('i', { style: `width:${n / max * 100}%` })),
+        el('span', { class: 'cov-val', textContent: `${n} bài${w ? ` · ${w} gợi ý` : ''}` }));
+      row.onclick = () => { picked = new Set([c.key]); renderChips(); $('suggest').focus(); };
+      box.appendChild(row);
+    }
+    $('coverageSum').textContent = `— ${total} bài đã phân nhóm · ${empty} nhóm chưa có bài`;
+  }
+  function renderIdeas(r) {
+    if (!clusters.length) { clusters = r.clusters; renderChips(); }
+    renderCoverage(r.coverage);
+    const box = $('topics');
+    box.textContent = '';
+    // gợi ý mới nhất lên đầu
+    const list = [...r.ideas].sort((a, b) => (fresh.has(b.id) - fresh.has(a.id)) || b.id - a.id);
+    for (const tp of list) {
+      const card = el('div', { class: 'topic' + (tp.id === ideaId ? ' on' : ''), role: 'listitem', tabIndex: 0 });
+      const close = el('button', { type: 'button', class: 'topic-x', title: 'Bỏ qua gợi ý này (lần sau AI không gợi ý lại)', 'aria-label': 'Bỏ qua gợi ý', textContent: '✕' });
+      close.onclick = async e => {
+        e.stopPropagation();
+        try {
+          if (ideaId === tp.id) { ideaId = 0; $('gTopic').value = ''; $('gKeyword').value = ''; }
+          renderIdeas(await api('POST', `/admin/api/blog/ideas/${tp.id}/dismiss`));
+        } catch (err) { onErr(err); }
+      };
+      const [dLabel, dCls] = DIFF[tp.difficulty] || ['', ''];
+      const tags = el('div', { class: 'topic-tags' },
+        el('span', { class: 'tag', textContent: clusterLabel(tp.cluster) }),
+        el('span', { class: 'tag ' + dCls, textContent: dLabel }),
+        el('span', { class: 'tag' + (tp.priority === 'high' ? ' prio' : ''), textContent: PRIO[tp.priority] || '' }));
+      if (fresh.has(tp.id)) tags.prepend(el('span', { class: 'tag new', textContent: 'Mới' }));
+      card.append(close, el('b', { textContent: tp.title }), el('span', { textContent: `🔑 ${tp.keyword} · ${tp.intent}` }), tags,
+        el('small', { textContent: tp.angle }));
+      if (tp.similar) card.appendChild(el('small', { class: 'warn-dup', textContent: `⚠️ Gần giống bài đã có: ${tp.similar}` }));
+      const pick = () => {
+        ideaId = tp.id;
+        $('gTopic').value = tp.title; $('gKeyword').value = tp.keyword;
+        for (const c of box.children) c.classList.toggle('on', c === card);
+      };
+      card.onclick = pick;
+      card.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pick(); } };
+      box.appendChild(card);
+    }
+    show('topics', list.length > 0);
+  }
+  // sửa tay chủ đề thì không còn gắn với gợi ý đã chọn
+  $('gTopic').addEventListener('input', () => { ideaId = 0; for (const c of $('topics').children) c.classList.remove('on'); });
+
   $('suggest').onclick = async () => {
     const b = $('suggest');
     b.disabled = true; b.textContent = '⏳ Đang nghĩ chủ đề…';
     try {
-      const r = await api('POST', '/admin/api/blog/topics', { lang: $('gLang').value, seed: $('gSeed').value });
-      const box = $('topics');
-      box.textContent = '';
-      for (const tp of r.topics) {
-        const chip = el('button', { type: 'button', class: 'topic', role: 'listitem' },
-          el('b', { textContent: tp.title }), el('span', { textContent: `🔑 ${tp.keyword} · ${tp.intent}` }), el('small', { textContent: tp.angle }));
-        chip.onclick = () => {
-          $('gTopic').value = tp.title; $('gKeyword').value = tp.keyword;
-          for (const c of box.children) c.classList.toggle('on', c === chip);
-        };
-        box.appendChild(chip);
-      }
-      show('topics', r.topics.length > 0);
+      const r = await api('POST', '/admin/api/blog/topics', { lang: $('gLang').value, seed: $('gSeed').value, clusters: [...picked], count: Number($('gCount').value) });
+      fresh = new Set(r.fresh);
+      renderIdeas(r);
+      if (!r.fresh.length) toast('AI chưa đưa ra được chủ đề mới không trùng — thử chọn nhóm khác hoặc nhập hướng chủ đề.', true);
     } catch (err) { onErr(err); }
     b.disabled = false; b.textContent = '💡 Gợi ý chủ đề';
   };
@@ -479,10 +548,11 @@
     try {
       const r = await api('POST', '/admin/api/blog/generate', {
         lang: $('gLang').value, topic: $('gTopic').value, keyword: $('gKeyword').value, length: $('gLength').value,
-        tone: $('gTone').value, images: $('gImages').value, notes: $('gNotes').value, publish: $('gPublish').checked,
+        tone: $('gTone').value, images: $('gImages').value, notes: $('gNotes').value, publish: $('gPublish').checked, ideaId,
       });
       trackJob(r.job);
       $('gTopic').value = ''; $('gKeyword').value = '';
+      ideaId = 0;   // gợi ý biến khỏi danh sách khi bài viết xong (loadIdeas trong trackJob)
       for (const c of $('topics').children) c.classList.remove('on');
     } catch (err) { onErr(err); }
   };
@@ -509,7 +579,7 @@
         draw(r.job);
         if (r.job.status !== 'running') {
           clearInterval(timer);
-          if (r.job.status === 'done') { toast('Đã viết xong: ' + r.job.topic); loadBlog(); }
+          if (r.job.status === 'done') { toast('Đã viết xong: ' + r.job.topic); loadBlog(); loadIdeas(); }
         }
       } catch (err) { clearInterval(timer); onErr(err); }
     }, 3000);

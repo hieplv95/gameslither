@@ -163,10 +163,20 @@
             <label class="span2">Hướng chủ đề (không bắt buộc)
               <div class="inline">
                 <input id="gSeed" maxlength="300" placeholder="VD: mẹo chơi cho người mới, so sánh game io, chơi trên điện thoại…">
+                <select id="gCount" aria-label="Số gợi ý"><option value="5">5 gợi ý</option><option value="10" selected>10 gợi ý</option><option value="15">15 gợi ý</option></select>
                 <button class="ghost" type="button" id="suggest">💡 Gợi ý chủ đề</button>
               </div>
             </label>
           </div>
+          <div class="cluster-pick">
+            <span class="hint">Nhóm chủ đề:</span>
+            <div id="clusterChips" class="chips" role="group" aria-label="Nhóm chủ đề"></div>
+          </div>
+          <details id="coverageBox" class="coverage">
+            <summary>📊 Độ phủ chủ đề <span id="coverageSum" class="hint"></span></summary>
+            <div id="coverage" class="coverage-grid"></div>
+            <p class="hint">Số bài (nháp + đã đăng) và số gợi ý đang chờ của từng nhóm. Bấm một nhóm để chỉ gợi ý nhóm đó. Bài cũ chưa có nhóm sẽ được AI tự phân loại ở lần gợi ý kế tiếp.</p>
+          </details>
           <div id="topics" class="topics hidden" role="list"></div>
           <div class="gen-grid">
             <label class="span2">Chủ đề bài viết<input id="gTopic" maxlength="300" required placeholder="Nhập chủ đề hoặc bấm một gợi ý ở trên"></label>

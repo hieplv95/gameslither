@@ -133,6 +133,23 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS scores_week ON scores (week, length DESC);
   CREATE INDEX IF NOT EXISTS scores_len ON scores (length DESC);
+  -- gợi ý chủ đề blog do AI đưa ra: nhớ lại để lần sau không gợi ý trùng
+  CREATE TABLE IF NOT EXISTS topic_ideas (
+    id INTEGER PRIMARY KEY,
+    lang TEXT NOT NULL,
+    title TEXT NOT NULL,
+    keyword TEXT NOT NULL,
+    cluster TEXT NOT NULL,                  -- nhóm chủ đề (CLUSTERS ở writer.js)
+    intent TEXT NOT NULL,
+    difficulty TEXT NOT NULL,               -- low | medium | high (độ khó lên top)
+    priority TEXT NOT NULL,                 -- high | medium | low
+    angle TEXT NOT NULL,
+    similar TEXT NOT NULL DEFAULT '',       -- tiêu đề bài đã có gần giống (cảnh báo trùng)
+    status TEXT NOT NULL DEFAULT 'suggested',   -- suggested | used | dismissed
+    created_at INTEGER NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS topic_ideas_lang ON topic_ideas (lang, status, id);
   -- mỗi tài khoản có thể đăng nhập trên nhiều thiết bị (token thêm khi khôi phục bằng mã)
   CREATE TABLE IF NOT EXISTS account_tokens (
     token_hash TEXT PRIMARY KEY,
@@ -153,6 +170,10 @@ db.exec(`
   add('recovery_hash', 'TEXT');                        // mã khôi phục tài khoản (đã băm)
 }
 db.exec('CREATE UNIQUE INDEX IF NOT EXISTS accounts_recovery ON accounts (recovery_hash)');
+// nhóm chủ đề của bài viết (để thống kê độ phủ); bài cũ được AI phân loại ở lần gợi ý chủ đề kế tiếp
+if (!db.prepare('PRAGMA table_info(posts)').all().some(c => c.name === 'cluster')) {
+  db.exec("ALTER TABLE posts ADD COLUMN cluster TEXT NOT NULL DEFAULT ''");
+}
 
 const q = {
   byToken: db.prepare('SELECT id, balance FROM accounts WHERE token_hash = ?'),
@@ -232,7 +253,21 @@ const qp = {
   publishedCount: db.prepare("SELECT COUNT(*) n FROM posts WHERE status = 'published' AND lang = ?"),
   publishedAll: db.prepare("SELECT lang, slug, title, cover, published_at, updated_at FROM posts WHERE status = 'published' ORDER BY published_at DESC"),
   del: db.prepare('DELETE FROM posts WHERE id = ?'),
+  setCluster: db.prepare('UPDATE posts SET cluster = ? WHERE id = ?'),
+  postsOfLang: db.prepare('SELECT id, title, keywords, cluster FROM posts WHERE lang = ? ORDER BY id'),
+  coverage: db.prepare("SELECT cluster, COUNT(*) n FROM posts WHERE lang = ? AND cluster != '' GROUP BY cluster"),
 };
+const qi = {
+  add: db.prepare(`INSERT INTO topic_ideas (lang, title, keyword, cluster, intent, difficulty, priority, angle, similar, status, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'suggested', ?, ?)`),
+  byId: db.prepare('SELECT * FROM topic_ideas WHERE id = ?'),
+  open: db.prepare("SELECT * FROM topic_ideas WHERE lang = ? AND status = 'suggested' ORDER BY id DESC LIMIT ?"),
+  recent: db.prepare('SELECT title, keyword, status FROM topic_ideas WHERE lang = ? ORDER BY id DESC LIMIT ?'),
+  setStatus: db.prepare('UPDATE topic_ideas SET status = ?, updated_at = ? WHERE id = ?'),
+  pending: db.prepare("SELECT cluster, COUNT(*) n FROM topic_ideas WHERE lang = ? AND status = 'suggested' GROUP BY cluster"),
+};
+const ideaRow = r => r && { id: Number(r.id), lang: r.lang, title: r.title, keyword: r.keyword, cluster: r.cluster, intent: r.intent,
+  difficulty: r.difficulty, priority: r.priority, angle: r.angle, similar: r.similar, status: r.status, created_at: Number(r.created_at) };
 const postRow = r => r && { ...r, id: Number(r.id), faq: (() => { try { return JSON.parse(r.faq); } catch { return []; } })(),
   created_at: Number(r.created_at), updated_at: Number(r.updated_at), published_at: r.published_at == null ? null : Number(r.published_at) };
 
@@ -496,6 +531,26 @@ module.exports = {
     return id;
   },
   deletePost(id) { qp.del.run(id); },
+  setPostCluster(id, cluster) { qp.setCluster.run(cluster, id); },
+  postsOfLang(lang) { return qp.postsOfLang.all(lang).map(r => ({ id: Number(r.id), title: r.title, keywords: r.keywords, cluster: r.cluster })); },
+
+  // ---------------------------------------------------------------- gợi ý chủ đề blog
+  // Lưu các gợi ý mới, trả về kèm id.
+  saveIdeas(lang, list) {
+    const now = Date.now();
+    return tx(() => list.map(t => ({ ...t, lang, status: 'suggested', created_at: now,
+      id: Number(qi.add.run(lang, t.title, t.keyword, t.cluster, t.intent, t.difficulty, t.priority, t.angle, t.similar || '', now, now).lastInsertRowid) })));
+  },
+  openIdeas(lang, limit = 60) { return qi.open.all(lang, limit).map(ideaRow); },
+  recentIdeas(lang, limit = 200) { return qi.recent.all(lang, limit).map(r => ({ title: r.title, keyword: r.keyword, status: r.status })); },
+  getIdea(id) { return ideaRow(qi.byId.get(id)); },
+  setIdeaStatus(id, status) { qi.setStatus.run(status, Date.now(), id); },
+  // Độ phủ theo nhóm: số bài (nháp + đã đăng) và số gợi ý đang chờ của mỗi nhóm
+  coverage(lang) {
+    const posts = Object.fromEntries(qp.coverage.all(lang).map(r => [r.cluster, Number(r.n)]));
+    const ideas = Object.fromEntries(qi.pending.all(lang).map(r => [r.cluster, Number(r.n)]));
+    return { posts, ideas };
+  },
 
   history(accountId, limit = 30) {
     return q.history.all(accountId, limit).map(r => [r.type, Number(r.amount), r.ref, Number(r.created_at)]);

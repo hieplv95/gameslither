@@ -350,16 +350,41 @@ function handleBlog(req, res, route) {
     db.deletePost(idOf('DELETE /admin/api/blog/post/'));
     return json(res, 200, { ok: true });
   }
+  // Gợi ý chủ đề: các gợi ý được lưu lại (lần sau AI tránh trùng), kèm độ phủ theo nhóm chủ đề
+  const ideasPayload = lang => ({ ideas: db.openIdeas(lang), coverage: db.coverage(lang), clusters: writer.CLUSTERS.map(c => ({ key: c.key, label: c.label })) });
+  if (route === 'GET /admin/api/blog/ideas') {
+    const lang = new URL(req.url, 'http://x').searchParams.get('lang');
+    if (!LANGS.includes(lang)) return json(res, 400, { error: 'Ngôn ngữ không hợp lệ.' });
+    return json(res, 200, ideasPayload(lang));
+  }
   if (route === 'POST /admin/api/blog/topics') {
-    return readJson(req).then(b => writer.suggestTopics({ lang: b.lang, seed: oneLine(b.seed).slice(0, 300), count: 10 }))
-      .then(topics => json(res, 200, { topics })).catch(fail);
+    return readJson(req).then(async b => {
+      if (!LANGS.includes(b.lang)) throw new Error('Ngôn ngữ không hợp lệ.');
+      const keys = new Set(writer.CLUSTERS.map(c => c.key));
+      const clusters = (Array.isArray(b.clusters) ? b.clusters : []).filter(c => keys.has(c));
+      const count = [5, 10, 15].includes(Number(b.count)) ? Number(b.count) : 10;
+      const r = await writer.suggestTopics({ lang: b.lang, seed: oneLine(b.seed).slice(0, 300), clusters, count });
+      for (const c of r.classified) db.setPostCluster(c.id, c.cluster);
+      const fresh = db.saveIdeas(b.lang, r.topics);
+      json(res, 200, { fresh: fresh.map(t => t.id), ...ideasPayload(b.lang) });
+    }).catch(fail);
+  }
+  if (route.startsWith('POST /admin/api/blog/ideas/') && route.endsWith('/dismiss')) {
+    const idea = db.getIdea(Number(route.slice('POST /admin/api/blog/ideas/'.length, -'/dismiss'.length)));
+    if (!idea) return json(res, 404, { error: 'Không tìm thấy gợi ý' });
+    db.setIdeaStatus(idea.id, 'dismissed');
+    return json(res, 200, ideasPayload(idea.lang));
   }
   if (route === 'POST /admin/api/blog/generate') {
     return readJson(req).then(b => {
       const topic = oneLine(b.topic).slice(0, 300);
       if (!topic) throw new Error('Hãy nhập hoặc chọn một chủ đề.');
       if (!LANGS.includes(b.lang)) throw new Error('Ngôn ngữ không hợp lệ.');
+      // viết từ một gợi ý đã lưu → khi bài lưu xong: gợi ý thành "đã viết", bài được gắn nhóm chủ đề
+      const idea = b.ideaId ? db.getIdea(Number(b.ideaId)) : null;
       const job = writer.startJob({
+        cluster: idea && idea.lang === b.lang ? idea.cluster : '',
+        ideaId: idea && idea.lang === b.lang ? idea.id : 0,
         lang: b.lang, topic, keyword: oneLine(b.keyword).slice(0, 120), notes: String(b.notes || '').slice(0, 2000),
         length: ['short', 'medium', 'long'].includes(b.length) ? b.length : 'medium',
         tone: ['friendly', 'expert', 'news', 'beginner'].includes(b.tone) ? b.tone : 'friendly',
