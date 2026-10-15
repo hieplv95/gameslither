@@ -489,6 +489,7 @@ wss.on('connection', (ws, req) => {
           c.snake.boost = !!m.b;
         }
         break;
+      case 'ping': if (Number.isFinite(m.c)) send(c, { t: 'pong', c: m.c }); break;   // client đo RTT để dự đoán rắn của mình
       case 'joinFree': joinFree(c, m); break;
       case 'buySkin': buySkin(c, m); break;
       case 'missions': send(c, missionsInfo(c)); break;

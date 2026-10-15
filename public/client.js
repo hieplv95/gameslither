@@ -58,6 +58,12 @@
   let scale = 1, ringR = 4000;
   let lbData = null, lobby = null;
   let mouseAngle = 0, boost = false, sentAngle = null, sentBoost = false;
+  // Dự đoán rắn của mình: chạy trước trạng thái server bằng lệnh lái đã gửi → bấm là thấy rắn quay ngay
+  const sentHist = [];          // lệnh đã gửi gần đây: { t, a, b }
+  const rtts = [];
+  let rtt = 100;                // ms, đo bằng ping/pong; 100 là đoán tạm khi chưa đo
+  let predSnap = null, predErr = { x: 0, y: 0, a: 0 }, predAt = 0;
+  let tickMs = 1000 / 30;       // khoảng cách thật giữa 2 nhịp server, đo từ timestamp các gói
   let mySkin = Math.floor(Math.random() * Skins.FREE);
   let myHue = HUES[Math.floor(Math.random() * HUES.length)];
   // Cửa hàng: xu, mẫu đã mua, bảng giá (server gửi trong tin 'acct')
@@ -284,7 +290,7 @@
     $('status').textContent = T('connecting');
     ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host);
     ws.binaryType = 'arraybuffer';
-    ws.onopen = () => { $('status').textContent = ''; sendMsg({ t: 'hello', token: lsGet('rn_token'), lang: LANG }); };
+    ws.onopen = () => { $('status').textContent = ''; sendMsg({ t: 'hello', token: lsGet('rn_token'), lang: LANG }); sendMsg({ t: 'ping', c: Date.now() }); };
     ws.onmessage = e => {
       if (typeof e.data !== 'string') { onState(decodeState(e.data)); return; }
       let m; try { m = JSON.parse(e.data); } catch { return; }
@@ -628,8 +634,8 @@
     if (Math.hypot(ev.x - cam.x, ev.y - cam.y) > 3000) return;
     const parts = [], n = ev.big ? 34 : 20;
     for (let i = 0; i < n; i++) parts.push({ a: Math.random() * Math.PI * 2, sp: 90 + Math.random() * (ev.big ? 300 : 190), r: 4 + Math.random() * (ev.big ? 9 : 6) });
-    // hiện cùng lúc với hình ảnh (vốn được vẽ trễ interpDelay để nội suy)
-    bursts.push({ x: ev.x, y: ev.y, hue: ev.hue, t0: Date.now() + interpDelay, parts, ring: ev.big ? 170 : 100 });
+    // hiện cùng lúc với hình ảnh (vốn được vẽ trễ interpDelay để nội suy); rắn của mình không vẽ trễ nên nổ ngay
+    bursts.push({ x: ev.x, y: ev.y, hue: ev.hue, t0: Date.now() + (ev.vid === myId ? 0 : interpDelay), parts, ring: ev.big ? 170 : 100 });
   }
   const missionLines = list => (list || []).map(m => '🎯 ' + T('missionDone', { name: missionText(m), n: num(m.reward) }));
   const skinLines = list => (list || []).map(i => '🏅 ' + T('newSkin', { name: Skins.nameOf(i) }));
@@ -637,6 +643,14 @@
   // ------------------------------------------------------------ messages
   function handle(m) {
     switch (m.t) {
+      case 'pong': {
+        // trung vị 5 lần đo gần nhất: bỏ qua lần mạng giật đột ngột
+        rtts.push(Date.now() - m.c);
+        if (rtts.length > 5) rtts.shift();
+        const s = [...rtts].sort((a, b) => a - b);
+        rtt = s[s.length >> 1];
+        break;
+      }
       case 'acct':
         lsSet('rn_token', m.token);
         $('balance').textContent = usd(m.bal);
@@ -699,6 +713,7 @@
       case 'init':
         myId = m.id; baseR = m.wr; ringR = m.wr; alive = true; mode = m.mode; inQueue = false;
         snaps.length = 0; foods.clear(); eatAnims.length = 0; clockOffset = null; sentAngle = null;
+        sentHist.length = 0; predSnap = null; predErr = { x: 0, y: 0, a: 0 };
         infoCache.clear(); bursts.length = 0; $('killFeed').textContent = '';
         roomCode = m.mode === 'free' ? m.code : null;
         for (const id of ['menu', 'death', 'queue', ...MODALS]) show(id, false);
@@ -779,6 +794,8 @@
     const want = Math.min(INTERP_MAX, Math.max(INTERP_MIN, sorted[Math.floor(sorted.length * 0.95)] + 40));
     interpDelay += (want - interpDelay) * (want > interpDelay ? 0.2 : 0.02);   // tăng nhanh, giảm từ từ
 
+    const prev = snaps[snaps.length - 1];
+    if (prev && m.ts - prev.ts > 0 && m.ts - prev.ts < 200) tickMs += (m.ts - prev.ts - tickMs) * 0.05;
     const map = new Map();
     for (const a of m.sn) map.set(a.id, a);
     snaps.push({ ts: m.ts, snakes: map, vr: m.vr, vx: m.vx, vy: m.vy, wr: m.wr });
@@ -793,6 +810,7 @@
       const f = foods.get(fr[i]);
       if (!f) continue;
       foods.delete(fr[i]);
+      if (f.ate) continue;   // đã ăn trước theo dự đoán
       if (fr[i + 1]) eatAnims.push({ x: f.x, y: f.y, v: f.v, hue: f.hue, eater: fr[i + 1], t0: now });
       if (fr[i + 1] === myId && alive) sfx.eat(f.v);
     }
@@ -804,9 +822,15 @@
     if (sentAngle === null || Math.abs(angleDiff(sentAngle, mouseAngle)) > 0.015 || sentBoost !== boost) {
       if (boost && !sentBoost && myMass > 15) sfx.boost();
       sentAngle = mouseAngle; sentBoost = boost;
-      sendMsg({ t: 'in', a: Math.round(mouseAngle * 1000) / 1000, b: boost ? 1 : 0 });
+      const a = Math.round(mouseAngle * 1000) / 1000;
+      sendMsg({ t: 'in', a, b: boost ? 1 : 0 });
+      const now = Date.now();
+      sentHist.push({ t: now, a, b: boost });
+      while (sentHist.length > 1 && sentHist[1].t < now - 1500) sentHist.shift();
     }
   }, 33);
+
+  setInterval(() => sendMsg({ t: 'ping', c: Date.now() }), 2000);
 
   // ------------------------------------------------------------ input
   addEventListener('mousemove', e => { mouseAngle = angleFrom(e.clientX, e.clientY); });
@@ -897,6 +921,87 @@
     return { snakes: out, vr: L(s0.vr, s1.vr), vx: L(s0.vx, s1.vx), vy: L(s0.vy, s1.vy), wr: L(s0.wr, s1.wr) };
   }
 
+  // ------------------------------------------------------------ dự đoán rắn của mình
+  // Rắn khác vẽ trễ interpDelay; riêng rắn của mình lấy gói mới nhất rồi chạy tiếp bằng đúng luật moveSnake() ở room.js
+  // với các lệnh đã gửi mà server chưa kịp phản hồi (~1 RTT) → lái là thấy quay ngay thay vì chờ RTT + interpDelay.
+  const DT = 1 / 30, BASE_SPEED = 190, BOOST_SPEED = 400, PRED_MAX = 500, ERR_FADE = 200;
+  function inputAt(t) {
+    for (let i = sentHist.length - 1; i >= 0; i--) if (sentHist[i].t <= t) return sentHist[i];
+    return sentHist[0] || { a: mouseAngle, b: boost };
+  }
+  function pathLength(p) {
+    let len = 0;
+    for (let i = 2; i < p.length; i += 2) len += Math.hypot(p[i] - p[i - 2], p[i + 1] - p[i - 1]);
+    return len;
+  }
+  function predictMe(snap, now) {
+    const b = snap && snap.snakes.get(myId);
+    if (!b || b.pts.length < 4) return null;
+    // Gói này phản ánh các lệnh gửi trước lúc (giờ đến dự kiến của gói − RTT) → chạy tiếp từ đó tới hiện tại
+    const span = Math.min(PRED_MAX, Math.max(0, now - clockOffset - snap.ts + rtt));
+    const t0 = now - span;
+    const turn = 5.2 / (1 + (b.r - 9) / 25) * DT;
+    let x = b.pts[0], y = b.pts[1], a = b.ang;
+    const head = [];
+    // Mỗi nhịp server đi đúng 1 bước DT, nhưng nhịp thật có thể thưa hơn 30/giây (máy bận, đồng hồ Windows)
+    // → chia thời gian theo tickMs đo được, nếu không bản dự đoán chạy nhanh hơn rắn thật rồi bị kéo lùi mỗi gói.
+    for (let done = 0; done < span; done += tickMs) {
+      const f = Math.min(1, (span - done) / tickMs);   // nhịp cuối chạy một phần → vị trí liên tục theo thời gian
+      const inp = inputAt(t0 + done + tickMs);
+      const sp = (inp.b && myMass >= 15 ? BOOST_SPEED : BASE_SPEED) * DT * f;
+      a += Math.max(-turn * f, Math.min(turn * f, angleDiff(a, inp.a)));
+      x += Math.cos(a) * sp; y += Math.sin(a) * sp;
+      head.push(x, y);
+    }
+    // Thân: đường đầu đã dự đoán nối với thân trong gói, cắt bớt đuôi để giữ nguyên độ dài
+    const all = [];
+    for (let i = head.length - 2; i >= 0; i -= 2) all.push(head[i], head[i + 1]);
+    for (const v of b.pts) all.push(v);
+    const max = pathLength(b.pts), pts = [all[0], all[1]];
+    let acc = 0;
+    for (let i = 2; i < all.length; i += 2) {
+      const dx = all[i] - all[i - 2], dy = all[i + 1] - all[i - 1], len = Math.hypot(dx, dy);
+      if (acc + len >= max) {
+        const t = len ? (max - acc) / len : 0;
+        pts.push(all[i - 2] + dx * t, all[i - 1] + dy * t);
+        break;
+      }
+      acc += len;
+      pts.push(all[i], all[i + 1]);
+    }
+    return { id: b.id, name: b.name, skin: b.skin, hue: b.hue, boost: b.boost, r: b.r, ang: a, pts };
+  }
+  // Mỗi gói mới làm kết quả dự đoán xê dịch chút ít (mạng giật, lệnh tới server sớm/muộn hơn ước tính):
+  // giữ phần lệch đó rồi cho mờ dần, phân bổ ở khúc đầu, để rắn không bị giật.
+  function myPredicted(now) {
+    const latest = snaps[snaps.length - 1];
+    const p = predictMe(latest, now);
+    if (!p) { predSnap = null; return null; }
+    const fade = Math.exp(-(now - predAt) / 100), gap = now - predAt;
+    predAt = now;
+    predErr.x *= fade; predErr.y *= fade; predErr.a *= fade;
+    if (latest !== predSnap) {
+      // tab vừa bị ẩn / khựng lâu thì gói cũ đã lỗi thời, so với nó chỉ ra độ lệch giả
+      const old = gap < 250 && predictMe(predSnap, now);
+      if (old) {
+        predErr.x += old.pts[0] - p.pts[0]; predErr.y += old.pts[1] - p.pts[1];
+        predErr.a += angleDiff(p.ang, old.ang);
+      }
+      if (Math.hypot(predErr.x, predErr.y) > 150) predErr = { x: 0, y: 0, a: 0 };   // lệch quá xa: nhảy thẳng tới chỗ đúng
+      predSnap = latest;
+    }
+    const pts = p.pts;
+    let d = 0, px = pts[0], py = pts[1];
+    for (let i = 0; i < pts.length && d < ERR_FADE; i += 2) {
+      d += Math.hypot(pts[i] - px, pts[i + 1] - py);
+      px = pts[i]; py = pts[i + 1];
+      const w = Math.max(0, 1 - d / ERR_FADE);
+      pts[i] += predErr.x * w; pts[i + 1] += predErr.y * w;
+    }
+    p.ang += predErr.a;
+    return p;
+  }
+
   // ------------------------------------------------------------ rendering
   function drawSnake(s, isMe, now) {
     if (s.pts.length < 4) return;
@@ -911,7 +1016,9 @@
     const now = Date.now();
     drawSkinPreviews(performance.now() / 1000);
     const fr = mode && clockOffset !== null ? getFrame(now) : null;
-    const me = fr ? fr.snakes.get(myId) : null;
+    // rắn của mình: bản dự đoán; vừa chết thì biến mất ngay (hiệu ứng nổ cũng hiện ngay, xem addBurst)
+    const me = fr && alive ? myPredicted(now) || fr.snakes.get(myId) : null;
+    const snakeOf = id => (id === myId ? me : fr && fr.snakes.get(id));
     if (fr) ringR = fr.wr;
 
     if (me && alive) { cam.x = me.pts[0]; cam.y = me.pts[1]; }
@@ -948,8 +1055,20 @@
 
     ctx.globalCompositeOperation = 'lighter';
     if (fr) {
+      // Ăn mồi ngay khi đầu (đã dự đoán) chạm tới, không chờ server báo; server không xác nhận trong 1 giây thì hiện lại
+      const er = me ? me.r + 14 : 0, hx = me ? me.pts[0] : 0, hy = me ? me.pts[1] : 0;
       for (const f of foods.values()) {
         if (f.x < x0 - 40 || f.x > x1 + 40 || f.y < y0 - 40 || f.y > y1 + 40) continue;
+        if (f.ate) {
+          if (now - f.ate < 1000) continue;
+          f.ate = 0;
+        }
+        if (er && (f.x - hx) ** 2 + (f.y - hy) ** 2 < er * er) {
+          f.ate = now;
+          eatAnims.push({ x: f.x, y: f.y, v: f.v, hue: f.hue, eater: myId, t0: now });
+          sfx.eat(f.v);
+          continue;
+        }
         const age = Math.min(1, (now - f.born) / 300);
         const rr = foodRadius(f.v) * (0.85 + 0.15 * Math.sin(now / 280 + f.ph)) * age * 2.5;
         ctx.drawImage(getFoodSprite(f.hue), f.x - rr, f.y - rr, rr * 2, rr * 2);
@@ -959,7 +1078,7 @@
       const a = eatAnims[i];
       const p = (now - a.t0) / 250;
       if (p >= 1) { eatAnims.splice(i, 1); continue; }
-      const e = fr && fr.snakes.get(a.eater);
+      const e = snakeOf(a.eater);
       let x = a.x, y = a.y;
       if (e) { x += (e.pts[0] - a.x) * p; y += (e.pts[1] - a.y) * p; }
       const rr = foodRadius(a.v) * (1 - p) * 2.5;
@@ -1000,6 +1119,12 @@
 
     if (mode === 'free' || mode === 'paid') {
       drawMinimap(me);
+      if (rtts.length) {   // ping ngay trên bản đồ nhỏ
+        ctx.font = '600 12px system-ui, sans-serif';
+        ctx.textAlign = 'right';
+        ctx.fillStyle = rtt < 100 ? 'rgba(124,255,107,0.8)' : rtt < 200 ? 'rgba(255,210,80,0.85)' : 'rgba(255,90,90,0.9)';
+        ctx.fillText(`${rtt} ms`, W - 16, H - 22 - mini.clientHeight);
+      }
       if (alive && myMass !== shownMass) {
         shownMass = myMass;
         $('score').textContent = T('length');
