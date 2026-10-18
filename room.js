@@ -13,8 +13,8 @@ const MAX_R = 46;
 const CELL = 120;
 const SECTOR = 500;   // kích thước vùng giữ mật độ mồi
 const DROP_TTL = 120_000;   // mồi rơi từ rắn tồn tại ~2 phút
-// Mật độ mồi: gốc 2200 viên cho bản đồ bán kính 4000, nhân với FOOD_MULT (mặc định 2 → 4400 viên)
-const FOOD_MULT = Math.min(5, Math.max(0.5, Number(process.env.FOOD_MULT) || 2));
+// Mật độ mồi: gốc 2200 viên cho bản đồ bán kính 4000, nhân với FOOD_MULT (mặc định 1.6 → 3520 viên)
+const FOOD_MULT = Math.min(5, Math.max(0.5, Number(process.env.FOOD_MULT) || 1.6));
 const FOOD_DENSITY = FOOD_MULT * 2200 / (Math.PI * 4000 * 4000);
 
 const BOT_NAMES = ['King Cobra', 'Silk Python', 'Electric Eel', 'Sidewinder', 'Slinky', 'Noodle', 'Viper',
