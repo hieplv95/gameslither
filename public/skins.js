@@ -41,14 +41,8 @@ window.SnakeSkins = (() => {
   }
 
   // pts: mảng phẳng [x0,y0,x1,y1,...] từ đầu tới đuôi → các điểm dày, cách đều nhau.
-  // maxPts: rắn quá dài thì giãn khoảng cách điểm (tối đa 0.7r, thân vẫn liền mạch) để số điểm phải vẽ không vượt mức này
-  function resampleFlat(pts, r, headAngle, maxPts) {
-    let sp = Math.max(2.5, r * 0.3);
-    if (maxPts) {
-      let len = 0;
-      for (let k = 2; k < pts.length; k += 2) len += Math.hypot(pts[k] - pts[k - 2], pts[k + 1] - pts[k - 1]);
-      sp = Math.max(sp, Math.min(r * 0.7, len / maxPts));
-    }
+  function resampleFlat(pts, r, headAngle) {
+    const sp = Math.max(2.5, r * 0.3);
     const P = [{ x: pts[0], y: pts[1] }];
     let nextD = sp, acc = 0;
     for (let k = 0; k + 3 < pts.length; k += 2) {
@@ -677,25 +671,17 @@ window.SnakeSkins = (() => {
   const CHUNK = 10;
 
   // Vẽ một con rắn. P: điểm thân (đầu → đuôi) đã qua resampleFlat/finish.
-  // view { x0, y0, x1, y1 } (toạ độ thế giới, tuỳ chọn): bỏ qua phần thân nằm ngoài khung nhìn — rắn dài thường chỉ lộ một khúc.
-  function draw(ctx, P, skinIdx, t, r, look, boost, hue, view) {
+  function draw(ctx, P, skinIdx, t, r, look, boost, hue) {
     const skin = SKINS[skinIdx] || SKINS[0];
     if (hue === undefined || hue === null) hue = 0;
     const outline = skin.classic ? `hsl(${hue},80%,24%)` : skin.outline;
     const glow = skin.classic ? hslHex(hue, 100, 60) : skin.glow;
     const n = P.length;
     if (n < 2) return;
-    // on[i]: điểm i (tính cả vầng sáng to nhất ~2.6r) có chạm khung nhìn không
-    const on = new Uint8Array(n);
-    for (let i = 0; i < n; i++) {
-      const p = P[i], m = p.r * 2.7;
-      on[i] = !view || (p.x + m > view.x0 && p.x - m < view.x1 && p.y + m > view.y0 && p.y - m < view.y1) ? 1 : 0;
-    }
     const glowFor = (hex, alphaFn, mul, step) => {
       ctx.globalCompositeOperation = 'lighter';
       const g = glowSprite(hex);
       for (let i = 0; i < n; i += step) {
-        if (!on[i]) continue;
         const gr = P[i].r * mul;
         ctx.globalAlpha = alphaFn(i);
         ctx.drawImage(g, P[i].x - gr, P[i].y - gr, gr * 2, gr * 2);
@@ -706,19 +692,12 @@ window.SnakeSkins = (() => {
     if (skin.aura) glowFor(skin.aura, () => 0.16, 2.1, 3);
     if (skin.under) skin.under(ctx, P[0], t);
 
-    const visPath = extra => {
-      ctx.beginPath();
-      for (let i = 0; i < n; i++) if (on[i]) { const p = P[i]; ctx.moveTo(p.x + p.r + extra, p.y); ctx.arc(p.x, p.y, p.r + extra, 0, TAU); }
-    };
-    ctx.save(); ctx.translate(r * 0.15, r * 0.3); visPath(0); ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fill(); ctx.restore();
-    visPath(skin.outlineW(r)); ctx.fillStyle = outline; ctx.fill();
+    ctx.save(); ctx.translate(r * 0.15, r * 0.3); bodyPath(ctx, P, 0, n, 0); ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fill(); ctx.restore();
+    bodyPath(ctx, P, 0, n, skin.outlineW(r)); ctx.fillStyle = outline; ctx.fill();
 
     // Vẽ thân theo từng đoạn từ đuôi lên đầu: chỗ rắn tự cuộn đè lên mình thì phần gần đầu nằm trên.
     for (let a = Math.floor((n - 1) / CHUNK) * CHUNK; a >= 0; a -= CHUNK) {
       const b = Math.min(n, a + CHUNK + 1);
-      let vis = false;
-      for (let i = a; i < b && !vis; i++) vis = on[i] === 1;
-      if (!vis) continue;
       ctx.save();
       bodyPath(ctx, P, a, b, 0);
       ctx.clip();

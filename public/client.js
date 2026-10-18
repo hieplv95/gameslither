@@ -1003,12 +1003,10 @@
   }
 
   // ------------------------------------------------------------ rendering
-  // Rắn rất dài (~750 điểm thân, mỗi điểm vài lớp vẽ) từng làm tụt FPS: giới hạn số điểm và bỏ phần ngoài màn hình
-  const MAX_BODY_PTS = 260;
-  function drawSnake(s, isMe, now, view) {
+  function drawSnake(s, isMe, now) {
     if (s.pts.length < 4) return;
-    const P = Skins.resampleFlat(s.pts, s.r, s.ang, MAX_BODY_PTS);
-    Skins.draw(ctx, P, s.skin, now / 1000, s.r, isMe ? mouseAngle : s.ang, s.boost, s.hue, view);
+    const P = Skins.resampleFlat(s.pts, s.r, s.ang);
+    Skins.draw(ctx, P, s.skin, now / 1000, s.r, isMe ? mouseAngle : s.ang, s.boost, s.hue);
   }
 
   function foodRadius(v) { return 3 + Math.sqrt(v) * 2.6; }
@@ -1104,9 +1102,8 @@
     ctx.globalCompositeOperation = 'source-over';
 
     if (fr) {
-      const view = { x0, y0, x1, y1 };
-      for (const s of fr.snakes.values()) if (s.id !== myId) drawSnake(s, false, now, view);
-      if (me) drawSnake(me, true, now, view);
+      for (const s of fr.snakes.values()) if (s.id !== myId) drawSnake(s, false, now);
+      if (me) drawSnake(me, true, now);
 
       ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
       ctx.font = '600 13px system-ui, sans-serif';
