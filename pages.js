@@ -2,7 +2,17 @@
 // Dựng trang chủ cho từng ngôn ngữ từ 1 khung chung + file bản dịch trong locales/.
 // Kết quả còn các chỗ trống {{SITE_URL}}, {{SEO_*}}, {{GSC_META}}, {{LATEST_POSTS}} và khối <!--PAID-->…<!--/PAID-->,
 // <!--BLOG-->…<!--/BLOG-->, server.js điền/gỡ khi trả trang.
+const fs = require('fs');
+const path = require('path');
+const crypto = require('crypto');
 const LOCALES = require('./locales');
+
+// /client.js?v=<mã nội dung>: mỗi lần cập nhật code, trình duyệt / Cloudflare tải đúng bản mới của từng file.
+// Không có ?v thì có thể dính client.js mới + skins.js cũ trong cache → gọi hàm chưa có, game lỗi ở mọi khung hình.
+const asset = name => {
+  const hash = crypto.createHash('md5').update(fs.readFileSync(path.join(__dirname, 'public', name))).digest('hex').slice(0, 8);
+  return `/${name}?v=${hash}`;
+};
 
 const SITE_UPDATED = '2026-09-30';
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -74,7 +84,7 @@ function render(L) {
   <meta name="twitter:description" content="{{SEO_DESCRIPTION}}">
   <script type="application/ld+json">${jsonForScript(jsonLd(L))}</script>
   <script>window.I18N_DICT = ${jsonForScript(ui)};</script>
-  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="${asset('style.css')}">
 </head>
 <body>
   <a class="skip" href="#about">${esc(t.skip)}</a>
@@ -406,10 +416,10 @@ function render(L) {
       <p class="disclaimer">${t.disclaimer}</p></div>
   </footer>
 
-  <script src="/i18n.js"></script>
-  <script src="/skins.js"></script>
-  <script src="/client.js"></script>
-  <script src="/site.js"></script>
+  <script src="${asset('i18n.js')}"></script>
+  <script src="${asset('skins.js')}"></script>
+  <script src="${asset('client.js')}"></script>
+  <script src="${asset('site.js')}"></script>
 </body>
 </html>
 `;

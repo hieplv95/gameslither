@@ -17,11 +17,25 @@
 
   // Game nằm trong khung #gameWrap của trang (có header/footer), không chiếm cả cửa sổ.
   const wrap = $('gameWrap');
+  // Mức chất lượng hình, tự hạ khi FPS thấp và nâng lại khi mượt (xem watchFps). dpr: độ nét tối đa,
+  // lite: bớt lớp vẽ rắn (Skins.draw), gap: khoảng cách điểm thân theo bán kính (thưa hơn = ít điểm phải vẽ)
+  const QUALITY = [
+    { dpr: 0.75, lite: 2, gap: 0.45 },   // 0: bỏ thêm lớp tô khối
+    { dpr: 1, lite: 1, gap: 0.3 },       // 1: bỏ bóng đổ, vầng sáng thường trực
+    { dpr: 1.5, lite: 0, gap: 0.3 },
+    { dpr: 2, lite: 0, gap: 0.3 },       // 3: đầy đủ
+  ];
+  let quality = 3;
+  { const q = lsGet('rn_q'); if (q !== null && QUALITY[+q]) quality = +q; }
+  // Vầng sáng của các rắn vẽ vào lớp nhỏ (1/GLOW_DIV độ phân giải) rồi ghép 1 lần — xem drawSnakes()
+  const GLOW_DIV = 4;
+  const glowCv = document.createElement('canvas'), gctx = glowCv.getContext('2d');
   let W = 0, H = 0, DPR = 1;
   function resize() {
-    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    DPR = Math.min(window.devicePixelRatio || 1, QUALITY[quality].dpr);
     W = wrap.clientWidth; H = wrap.clientHeight;
     canvas.width = Math.round(W * DPR); canvas.height = Math.round(H * DPR);
+    glowCv.width = Math.ceil(canvas.width / GLOW_DIV); glowCv.height = Math.ceil(canvas.height / GLOW_DIV);
   }
   new ResizeObserver(resize).observe(wrap);
   resize();
@@ -1003,17 +1017,78 @@
   }
 
   // ------------------------------------------------------------ rendering
-  function drawSnake(s, isMe, now) {
-    if (s.pts.length < 4) return;
-    const P = Skins.resampleFlat(s.pts, s.r, s.ang);
-    Skins.draw(ctx, P, s.skin, now / 1000, s.r, isMe ? mouseAngle : s.ang, s.boost, s.hue);
+  // Rắn rất dài (~600 điểm thân, mỗi điểm vài lớp vẽ) làm tụt FPS: chỉ vẽ phần trong khung nhìn (view, toạ độ thế giới),
+  // vầng sáng gom vào 1 lớp nhỏ nằm dưới thân mọi rắn. Mức chất lượng thấp thì vầng sáng vẽ thẳng (ít đốm) — máy vẽ
+  // bằng CPU tốn cho việc ghép lớp hơn là tiết kiệm được.
+  function drawSnakes(fr, me, now, view) {
+    const Q = QUALITY[quality], t = now / 1000, items = [];
+    const add = s => {
+      if (s.pts.length < 4) return;
+      const P = Skins.resampleFlat(s.pts, s.r, s.ang, Q.gap);
+      items.push({ s, P, on: Skins.visible(P, view) });
+    };
+    for (const s of fr.snakes.values()) if (s.id !== myId) add(s);
+    if (me) add(me);   // vẽ sau cùng → nằm trên
+    const k = scale * DPR, ox = (W / 2 - cam.x * scale) * DPR, oy = (H / 2 - cam.y * scale) * DPR;
+    if (!Q.lite) {
+      const bb = { x0: Infinity, y0: Infinity, x1: -Infinity, y1: -Infinity };
+      gctx.setTransform(1, 0, 0, 1, 0, 0);
+      gctx.clearRect(0, 0, glowCv.width, glowCv.height);
+      gctx.setTransform(k / GLOW_DIV, 0, 0, k / GLOW_DIV, ox / GLOW_DIV, oy / GLOW_DIV);
+      for (const { s, P, on } of items) Skins.drawGlow(gctx, P, s.skin, t, s.boost, s.hue, on, 0, bb);
+      // chỉ ghép vùng có đốm sáng (pixel của lớp nhỏ)
+      const x0 = Math.max(0, Math.floor((bb.x0 * k + ox) / GLOW_DIV)), x1 = Math.min(glowCv.width, Math.ceil((bb.x1 * k + ox) / GLOW_DIV));
+      const y0 = Math.max(0, Math.floor((bb.y0 * k + oy) / GLOW_DIV)), y1 = Math.min(glowCv.height, Math.ceil((bb.y1 * k + oy) / GLOW_DIV));
+      if (x1 > x0 && y1 > y0) {
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.drawImage(glowCv, x0, y0, x1 - x0, y1 - y0, x0 * GLOW_DIV, y0 * GLOW_DIV, (x1 - x0) * GLOW_DIV, (y1 - y0) * GLOW_DIV);
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.setTransform(k, 0, 0, k, ox, oy);
+      }
+    }
+    for (const { s, P, on } of items) {
+      Skins.draw(ctx, P, s.skin, t, s.r, s === me ? mouseAngle : s.ang, s.boost, s.hue, { on, lite: Q.lite, glowDone: !Q.lite });
+    }
+  }
+
+  // Đo FPS từng giây khi đang xem trận: 2 giây liền chậm (< ~45 FPS) → hạ 1 mức; mượt đủ lâu → thử nâng lại.
+  // Nâng lên mà tụt lại ngay thì lần sau chờ lâu gấp đôi, tránh nhảy qua lại liên tục.
+  // Chậm phải kèm thời gian vẽ đáng kể (work, ms CPU) hoặc rất chậm: trình duyệt tiết kiệm pin khoá 30 FPS thì hạ cũng vô ích.
+  const fps = { t0: 0, last: 0, frames: 0, work: 0, slow: 0, good: 0, upWait: 10, upAt: 0 };
+  const qKey = q => [Math.min(window.devicePixelRatio || 1, QUALITY[q].dpr), QUALITY[q].lite, QUALITY[q].gap].join();
+  function setQuality(q, now) {
+    const dir = Math.sign(q - quality);
+    while (q > 0 && q < QUALITY.length - 1 && qKey(q) === qKey(quality)) q += dir;   // mức không khác gì trên màn hình này → bỏ qua
+    if (!QUALITY[q] || qKey(q) === qKey(quality)) return;
+    if (dir < 0 && now - fps.upAt < 6000) fps.upWait = Math.min(160, fps.upWait * 2);
+    if (dir > 0) fps.upAt = now;
+    quality = q;
+    lsSet('rn_q', q);
+    resize();
+  }
+  function watchFps(now, work) {
+    const gap = now - fps.last;
+    fps.last = now;
+    if (gap > 1000 || document.hidden) { fps.t0 = now; fps.frames = 0; fps.work = 0; return; }   // tab ẩn / vừa chuyển tab: bỏ qua
+    fps.frames++; fps.work += work;
+    if (now - fps.t0 < 1000) return;
+    const dt = (now - fps.t0) / fps.frames, w = fps.work / fps.frames;
+    fps.t0 = now; fps.frames = 0; fps.work = 0;
+    if (dt > 22 && (w > 6 || dt > 40)) {
+      fps.good = 0;
+      if (++fps.slow >= 2) { fps.slow = 0; setQuality(quality - 1, now); }
+    } else {
+      fps.slow = 0;
+      if (dt < 18.5 && w < 6 && ++fps.good >= fps.upWait) { fps.good = 0; setQuality(quality + 1, now); }
+    }
   }
 
   function foodRadius(v) { return 3 + Math.sqrt(v) * 2.6; }
 
   function render() {
     requestAnimationFrame(render);
-    const now = Date.now();
+    const t0 = performance.now(), now = Date.now();
     drawSkinPreviews(performance.now() / 1000);
     const fr = mode && clockOffset !== null ? getFrame(now) : null;
     // rắn của mình: bản dự đoán; vừa chết thì biến mất ngay (hiệu ứng nổ cũng hiện ngay, xem addBurst)
@@ -1102,8 +1177,7 @@
     ctx.globalCompositeOperation = 'source-over';
 
     if (fr) {
-      for (const s of fr.snakes.values()) if (s.id !== myId) drawSnake(s, false, now);
-      if (me) drawSnake(me, true, now);
+      drawSnakes(fr, me, now, { x0, y0, x1, y1 });
 
       ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
       ctx.font = '600 13px system-ui, sans-serif';
@@ -1133,6 +1207,7 @@
         $('score').appendChild(b);
       }
     }
+    if (fr) watchFps(t0, performance.now() - t0);
   }
 
   function drawMinimap(me) {
