@@ -380,12 +380,15 @@ function handleBlog(req, res, route) {
       const topic = oneLine(b.topic).slice(0, 300);
       if (!topic) throw new Error('Hãy nhập hoặc chọn một chủ đề.');
       if (!LANGS.includes(b.lang)) throw new Error('Ngôn ngữ không hợp lệ.');
-      // viết từ một gợi ý đã lưu → khi bài lưu xong: gợi ý thành "đã viết", bài được gắn nhóm chủ đề
-      const idea = b.ideaId ? db.getIdea(Number(b.ideaId)) : null;
+      // viết từ một gợi ý đã lưu → gợi ý thành "đã viết" (ẩn khỏi danh sách), bài được gắn nhóm chủ đề.
+      // Không có ideaId (đã sửa chữ sau khi bấm gợi ý) thì tìm gợi ý đang chờ khớp với chủ đề.
+      const keyword = oneLine(b.keyword).slice(0, 120);
+      let idea = b.ideaId ? db.getIdea(Number(b.ideaId)) : null;
+      if (!idea || idea.lang !== b.lang || idea.status !== 'suggested') idea = writer.matchIdea(b.lang, topic, keyword);
       const job = writer.startJob({
-        cluster: idea && idea.lang === b.lang ? idea.cluster : '',
-        ideaId: idea && idea.lang === b.lang ? idea.id : 0,
-        lang: b.lang, topic, keyword: oneLine(b.keyword).slice(0, 120), notes: String(b.notes || '').slice(0, 2000),
+        cluster: idea ? idea.cluster : '',
+        ideaId: idea ? idea.id : 0,
+        lang: b.lang, topic, keyword, notes: String(b.notes || '').slice(0, 2000),
         length: ['short', 'medium', 'long'].includes(b.length) ? b.length : 'medium',
         tone: ['friendly', 'expert', 'news', 'beginner'].includes(b.tone) ? b.tone : 'friendly',
         images: Math.max(1, Math.min(4, Number(b.images) || 2)), publish: !!b.publish,

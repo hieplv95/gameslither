@@ -553,8 +553,8 @@
       });
       trackJob(r.job);
       $('gTopic').value = ''; $('gKeyword').value = '';
-      ideaId = 0;   // gợi ý biến khỏi danh sách khi bài viết xong (loadIdeas trong trackJob)
-      for (const c of $('topics').children) c.classList.remove('on');
+      ideaId = 0;
+      loadIdeas();   // gợi ý vừa chọn biến khỏi danh sách ngay (viết lỗi thì hiện lại khi tải lại danh sách)
     } catch (err) { onErr(err); }
   };
   function trackJob(job) {
@@ -580,7 +580,8 @@
         draw(r.job);
         if (r.job.status !== 'running') {
           clearInterval(timer);
-          if (r.job.status === 'done') { toast('Đã viết xong: ' + r.job.topic); loadBlog(); loadIdeas(); }
+          if (r.job.status === 'done') { toast('Đã viết xong: ' + r.job.topic); loadBlog(); }
+          loadIdeas();   // viết lỗi: gợi ý được trả lại danh sách
         }
       } catch (err) { clearInterval(timer); onErr(err); }
     }, 3000);

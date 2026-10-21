@@ -109,6 +109,11 @@ function postTopic(p) {
   const keywords = (p.keywords || '').split(',').map(k => k.trim()).filter(Boolean);
   return { title: p.title, keyword: keywords[0] || '', keywords };
 }
+// Mỗi bài so khớp theo tiêu đề AI đặt và cả chủ đề gốc dùng để viết (thường chính là tiêu đề gợi ý)
+const postTopics = posts => posts.flatMap(p => {
+  const t = postTopic(p);
+  return p.topic && p.topic !== p.title ? [t, { ...t, title: p.topic }] : [t];
+});
 
 const LENGTHS = { short: '700–900', medium: '1300–1600', long: '2200–2600' };
 const TONES = {
@@ -196,7 +201,7 @@ async function suggestTopics({ lang, seed = '', clusters = [], count = 10 }) {
   const cov = db.coverage(lang);
   const unclassified = posts.filter(p => !p.cluster).slice(0, 60);
   const maxPer = Math.max(2, Math.ceil(count / 8)), maxGenre = Math.max(2, Math.round(count / 8));
-  const taken = [...posts.map(postTopic), ...past];
+  const taken = [...postTopics(posts), ...past];
   const out = [], rejected = [], perCluster = {};
   let genre = 0, classified = [];
   const started = Date.now();
@@ -269,12 +274,16 @@ ${round ? '(none)' : unclassified.map(p => `- id ${p.id}: ${p.title}`).join('\n'
 // Gợi ý đang chờ để hiện trong trang quản trị. Gợi ý nào đã trùng một bài đã có (vd. bài viết tay sau đó)
 // hoặc trùng một gợi ý cũ hơn thì tự chuyển sang 'duplicate' và không hiện nữa.
 function openIdeas(lang) {
-  const taken = db.postsOfLang(lang).map(postTopic), out = [];
+  const taken = postTopics(db.postsOfLang(lang)), out = [];
   for (const i of db.openIdeas(lang, 1000).reverse()) {   // cũ → mới: giữ gợi ý có trước
     if (taken.some(x => isDup(x, i)) || out.some(x => isDup(x, i))) db.setIdeaStatus(i.id, 'duplicate');
     else out.push(i);
   }
   return out.reverse();
+}
+// Gợi ý đang chờ khớp với chủ đề sắp viết: vẫn tìm ra khi biên tập viên đã sửa chữ sau khi bấm gợi ý
+function matchIdea(lang, title, keyword) {
+  return db.openIdeas(lang, 1000).find(i => i.title === title || isDup(i, { title, keyword })) || null;
 }
 
 // ---------------------------------------------------------------- viết bài
@@ -568,6 +577,8 @@ function startJob(opts) {
   const job = { id, status: 'running', step: 'Đang viết nội dung…', postId: 0, error: '', startedAt: Date.now(), topic: opts.topic };
   jobs.set(id, job);
   for (const [k, j] of jobs) if (Date.now() - j.startedAt > 6 * 3600_000) jobs.delete(k);   // dọn tác vụ cũ
+  // gợi ý biến khỏi danh sách ngay khi bắt đầu viết (không đợi 1–3 phút); viết lỗi thì trả lại để viết lại
+  if (opts.ideaId) db.setIdeaStatus(opts.ideaId, 'used');
 
   (async () => {
     const a = await writeArticle(opts);
@@ -597,16 +608,16 @@ function startJob(opts) {
       status: opts.publish ? 'published' : 'draft',
     });
     if (CLUSTER_KEYS.includes(opts.cluster)) db.setPostCluster(job.postId, opts.cluster);
-    if (opts.ideaId) db.setIdeaStatus(opts.ideaId, 'used');
     job.status = 'done';
     job.step = (opts.publish ? 'Đã đăng bài.' : 'Đã lưu bản nháp.') + (notes.length ? ` ⚠️ ${notes.join(' · ')}` : '');
   })().catch(e => {
     console.error('[blog] viết bài lỗi:', e);
+    if (opts.ideaId) db.setIdeaStatus(opts.ideaId, 'suggested');
     job.status = 'error';
     job.error = friendlyError(e);
   });
   return job;
 }
 
-module.exports = { capabilities, CLUSTERS, MAX_COUNT, openIdeas, suggestTopics: o => suggestTopics(o).catch(e => { throw new Error(friendlyError(e)); }),
+module.exports = { capabilities, CLUSTERS, MAX_COUNT, openIdeas, matchIdea, suggestTopics: o => suggestTopics(o).catch(e => { throw new Error(friendlyError(e)); }),
   startJob, getJob: id => jobs.get(id) || null, makeImage, uniqueSlug, toSlug };

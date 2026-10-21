@@ -254,7 +254,7 @@ const qp = {
   publishedAll: db.prepare("SELECT lang, slug, title, cover, published_at, updated_at FROM posts WHERE status = 'published' ORDER BY published_at DESC"),
   del: db.prepare('DELETE FROM posts WHERE id = ?'),
   setCluster: db.prepare('UPDATE posts SET cluster = ? WHERE id = ?'),
-  postsOfLang: db.prepare('SELECT id, title, keywords, cluster FROM posts WHERE lang = ? ORDER BY id'),
+  postsOfLang: db.prepare('SELECT id, title, keywords, cluster, topic FROM posts WHERE lang = ? ORDER BY id'),
   coverage: db.prepare("SELECT cluster, COUNT(*) n FROM posts WHERE lang = ? AND cluster != '' GROUP BY cluster"),
 };
 const qi = {
@@ -532,7 +532,7 @@ module.exports = {
   },
   deletePost(id) { qp.del.run(id); },
   setPostCluster(id, cluster) { qp.setCluster.run(cluster, id); },
-  postsOfLang(lang) { return qp.postsOfLang.all(lang).map(r => ({ id: Number(r.id), title: r.title, keywords: r.keywords, cluster: r.cluster })); },
+  postsOfLang(lang) { return qp.postsOfLang.all(lang).map(r => ({ id: Number(r.id), title: r.title, keywords: r.keywords, cluster: r.cluster, topic: r.topic || '' })); },
 
   // ---------------------------------------------------------------- gợi ý chủ đề blog
   // Lưu các gợi ý mới, trả về kèm id.
