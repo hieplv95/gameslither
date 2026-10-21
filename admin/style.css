@@ -168,7 +168,6 @@ select { width: 100%; background: var(--bg); color: var(--text); border: 1px sol
 .topic .tag.easy { color: #3fcf6e; } .topic .tag.mid { color: #e8b84a; } .topic .tag.hard { color: #ff8a8a; }
 .topic .tag.prio { color: #062014; background: var(--accent); font-weight: 700; }
 .topic .tag.new { color: #fff; background: var(--series-1); font-weight: 700; }
-.topic .warn-dup { color: #e8b84a; }
 .cluster-pick { display: grid; gap: 6px; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; }
 .chip { background: var(--bg); border: 1px solid var(--line); color: var(--text-2); border-radius: 999px; padding: 4px 12px; font-size: 13px; font-weight: 600; }

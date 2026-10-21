@@ -69,10 +69,16 @@ const CLUSTERS = [
   { key: 'culture', label: 'Lịch sử & văn hoá game rắn', hint: 'history of snake games (Nokia, arcade Blockade), records, trivia, psychology, why snake games are addictive' },
   { key: 'parents', label: 'Phụ huynh & an toàn', hint: 'parents, teachers, kids safety, screen time, educational value' },
   { key: 'updates', label: 'Cập nhật & tính năng mới', hint: 'GameSlither features and updates: hall of fame, missions, AI snake personalities, share cards, events' },
+  { key: 'questions', label: 'Câu hỏi hay gặp', hint: 'one narrow question people type into Google per article ("why does my snake…", "can you…", "is it possible to…", "what happens if…"), People Also Ask style' },
+  { key: 'names', label: 'Tên & nickname', hint: 'nickname ideas, cool/funny snake names, team and clan names, name generators, naming tips for io games' },
+  { key: 'skills', label: 'Kỹ năng & lợi ích', hint: 'what snake/io games train: reflexes, focus, hand-eye coordination, quick decisions; short game breaks for students and office workers' },
+  { key: 'events', label: 'Mùa, lễ & thử thách', hint: 'seasonal and occasion angles: holidays, school breaks, weekends, self-made challenges, mini tournaments with rules, streaming/recording ideas' },
 ];
 const CLUSTER_KEYS = CLUSTERS.map(c => c.key);
 
 // So khớp gần đúng 2 cụm chữ (bỏ dấu, chữ thường): từng từ với ngôn ngữ có dấu cách, từng cặp ký tự với tiếng Trung/Nhật.
+// Bỏ từ nối tiếng Anh để "How to … in …" không bị coi là giống nhau.
+const STOP = new Set('the an and or of to in on at for with your you my is are be how what why which when where can do does vs it its this that from'.split(' '));
 function tokens(s) {
   const t = String(s).toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd');
   if (/[぀-ヿ㐀-鿿]/.test(t)) {
@@ -81,7 +87,7 @@ function tokens(s) {
     for (let i = 0; i < c.length - 1; i++) out.add(c.slice(i, i + 2));
     return out;
   }
-  return new Set(t.split(/[^\p{L}\p{N}]+/u).filter(w => w.length > 1));
+  return new Set(t.split(/[^\p{L}\p{N}]+/u).filter(w => w.length > 1 && !STOP.has(w)));
 }
 function similarity(a, b) {
   const A = tokens(a), B = tokens(b);
@@ -91,6 +97,18 @@ function similarity(a, b) {
   return n / (A.size + B.size - n);
 }
 const sameKeyword = (a, b) => [...tokens(a)].sort().join(' ') === [...tokens(b)].sort().join(' ');
+// Hai chủ đề { title, keyword, keywords? } coi là trùng: cùng từ khoá (hoặc gần như cùng; với bài đã có thì so với
+// mọi từ khoá của bài), tiêu đề giống nhau, hoặc gộp tiêu đề + từ khoá giống nhau từ 35% trở lên
+// (trước đây mức này chỉ cảnh báo "gần giống bài đã có").
+const sameKw = (x, y) => x && y && (sameKeyword(x, y) || similarity(x, y) > 0.7);
+function isDup(a, b) {
+  if ((a.keywords || [a.keyword]).some(k => sameKw(k, b.keyword))) return true;
+  return similarity(a.title, b.title) >= 0.5 || similarity(`${a.title} ${a.keyword}`, `${b.title} ${b.keyword}`) >= 0.35;
+}
+function postTopic(p) {
+  const keywords = (p.keywords || '').split(',').map(k => k.trim()).filter(Boolean);
+  return { title: p.title, keyword: keywords[0] || '', keywords };
+}
 
 const LENGTHS = { short: '700–900', medium: '1300–1600', long: '2200–2600' };
 const TONES = {
@@ -164,27 +182,38 @@ const TOPICS_SCHEMA = {
 };
 
 const GENRE_RE = /slither/i;
-const MAX_PER_CLUSTER = 2, MAX_GENRE = 2;
+const MAX_COUNT = 30;
+const ROUNDS = 3, ROUNDS_BUDGET_MS = 150_000;   // gọi AI thêm vòng nữa khi lọc trùng xong còn thiếu (trong giới hạn thời gian)
 
 // Gợi ý chủ đề. clusters: các nhóm biên tập viên chọn (rỗng = trộn đa dạng). Trả về { topics, classified }:
-// topics đã lọc trùng (với bài đã có + các gợi ý trước đó) và kèm cảnh báo `similar` nếu gần giống một bài đã có;
-// classified = nhóm cho các bài cũ chưa phân loại.
+// topics không trùng (bài đã có, mọi gợi ý trước đó, và lẫn nhau); classified = nhóm cho các bài cũ chưa phân loại.
 async function suggestTopics({ lang, seed = '', clusters = [], count = 10 }) {
   const L = langOf(lang);
-  count = Math.min(15, Math.max(3, count));
+  count = Math.min(MAX_COUNT, Math.max(3, count));
   const picked = clusters.filter(c => CLUSTER_KEYS.includes(c));
   const posts = db.postsOfLang(lang);
-  const past = db.recentIdeas(lang, 200);
+  const past = db.recentIdeas(lang, 5000);   // mọi gợi ý từng đưa ra: đang chờ, đã viết, đã bỏ qua
   const cov = db.coverage(lang);
   const unclassified = posts.filter(p => !p.cluster).slice(0, 60);
-  const clusterList = CLUSTERS.map(c => `- ${c.key}: ${c.hint} — ${cov.posts[c.key] || 0} articles, ${cov.ideas[c.key] || 0} pending ideas`).join('\n');
-  const focus = picked.length
-    ? `Only suggest topics in these clusters: ${picked.join(', ')}. Spread the topics evenly across them, and inside a cluster vary the keyword head terms (no two keywords may start with the same two words).`
-    : `Mix clusters: use at least ${Math.min(count, 6)} different clusters, at most ${MAX_PER_CLUSTER} topics per cluster, and prefer clusters with few articles and few pending ideas.
-At most ${MAX_GENRE} keywords may contain the genre term "slither" (in any spelling). Most keywords must be ones people type WITHOUT that word.`;
-  const r = await askJson({
-    system: `You are an SEO content strategist for a gaming website.\n\n${SITE_FACTS}`,
-    prompt: `Suggest ${count + 4} blog article topics for the GameSlither blog, written in ${L.name} (${L.htmlLang}) for readers searching in that language.
+  const maxPer = Math.max(2, Math.ceil(count / 8)), maxGenre = Math.max(2, Math.round(count / 8));
+  const taken = [...posts.map(postTopic), ...past];
+  const out = [], rejected = [], perCluster = {};
+  let genre = 0, classified = [];
+  const started = Date.now();
+
+  for (let round = 0; round < ROUNDS && out.length < count; round++) {
+    if (round && Date.now() - started > ROUNDS_BUDGET_MS) break;
+    const need = count - out.length;
+    const full = picked.length ? [] : CLUSTER_KEYS.filter(k => (perCluster[k] || 0) >= maxPer);
+    const clusterList = CLUSTERS.filter(c => !full.includes(c.key))
+      .map(c => `- ${c.key}: ${c.hint} — ${cov.posts[c.key] || 0} articles, ${(cov.ideas[c.key] || 0) + (perCluster[c.key] || 0)} pending ideas`).join('\n');
+    const focus = picked.length
+      ? `Only suggest topics in these clusters: ${picked.join(', ')}. Spread the topics evenly across them, and inside a cluster vary the keyword head terms (no two keywords may start with the same two words).`
+      : `Mix clusters: use at least ${Math.min(need, 6)} different clusters, at most ${maxPer} topics per cluster, and prefer clusters with few articles and few pending ideas.
+At most ${Math.max(1, maxGenre - genre)} keywords may contain the genre term "slither" (in any spelling). Most keywords must be ones people type WITHOUT that word.`;
+    const r = await askJson({
+      system: `You are an SEO content strategist for a gaming website.\n\n${SITE_FACTS}`,
+      prompt: `Suggest ${Math.min(50, need * 2 + 4)} blog article topics for the GameSlither blog, written in ${L.name} (${L.htmlLang}) for readers searching in that language.
 ${seed ? `Focus area requested by the editor: "${seed}".\n` : ''}
 Topic clusters (with current coverage of this blog in ${L.name}):
 ${clusterList}
@@ -197,46 +226,55 @@ Keyword rules:
 - No two topics may target the same keyword or the same search intent.
 - Every topic must be naturally relevant to GameSlither so the article can link to the game. Topics about GameSlither's own features (missions, achievement skins, hall of fame, AI snake personalities, invite links, share cards) are welcome because no other site covers them.
 
+The blog already covers many topics, so the obvious ones are taken. Find fresh, narrow angles instead of rewording old ones:
+- one specific question per article (why / can / what happens if / how long / how many…)
+- modifiers: device (phone, iPad, Chromebook, school laptop, keyboard vs mouse), audience (kids, teens, adults, classmates, couples, office workers), situation (5-minute break, rainy day, after school, weekend with friends)
+- formats: checklist, myth vs fact, glossary of terms, one-tactic deep dive, records and numbers, challenge ideas, name ideas, seasonal guide
+- A new topic must answer a different search query than every listed article and suggestion — same subject with a new title is a duplicate.
+
 Do NOT repeat or closely paraphrase any of these existing articles:
-${posts.map(p => `- ${p.title}${p.keywords ? ` [${p.keywords.split(',')[0].trim()}]` : ''}`).join('\n') || '(none yet)'}
+${posts.map(p => { const t = postTopic(p); return `- ${t.title}${t.keyword ? ` [${t.keyword}]` : ''}`; }).join('\n') || '(none yet)'}
 
 Do NOT repeat or closely paraphrase any of these earlier suggestions (already suggested, written or rejected by the editor):
-${past.map(i => `- ${i.title} [${i.keyword}]`).join('\n') || '(none yet)'}
-
+${[...out, ...past].slice(0, 500).map(i => `- ${i.title} [${i.keyword}]`).join('\n') || '(none yet)'}
+${rejected.length ? `\nThese were just rejected as too close to existing topics — go in a clearly different direction:\n${rejected.slice(-40).map(i => `- ${i.title} [${i.keyword}]`).join('\n')}\n` : ''}
 Unclassified existing articles — put each one into the best cluster in "classified":
-${unclassified.map(p => `- id ${p.id}: ${p.title}`).join('\n') || '(none)'}`,
-    schema: TOPICS_SCHEMA,
-    maxTokens: 24000,
-    effort: 'medium',
-  });
+${round ? '(none)' : unclassified.map(p => `- id ${p.id}: ${p.title}`).join('\n') || '(none)'}`,
+      schema: TOPICS_SCHEMA,
+      maxTokens: 32000,
+      effort: 'medium',
+    });
+    if (!round) classified = r.classified || [];
 
-  // Lọc lại phía server: AI đôi khi vẫn lặp hoặc dồn vào một nhóm
-  const taken = [...posts.map(p => ({ title: p.title, keyword: (p.keywords || '').split(',')[0] })), ...past];
-  const perCluster = {}, out = [];
-  let genre = 0;
-  for (const t of r.topics || []) {
-    if (out.length >= count) break;
-    if (!CLUSTER_KEYS.includes(t.cluster)) continue;
-    if (picked.length && !picked.includes(t.cluster)) continue;
-    if (taken.some(x => (x.keyword && sameKeyword(x.keyword, t.keyword)) || similarity(x.title, t.title) >= 0.6)) continue;
-    if (out.some(x => sameKeyword(x.keyword, t.keyword) || similarity(x.title, t.title) >= 0.6)) continue;
-    if (!picked.length) {
-      if ((perCluster[t.cluster] || 0) >= MAX_PER_CLUSTER) continue;
-      if (GENRE_RE.test(t.keyword) && genre >= MAX_GENRE) continue;
+    // Lọc lại phía server: AI đôi khi vẫn lặp hoặc dồn vào một nhóm
+    for (const t of r.topics || []) {
+      if (out.length >= count) break;
+      if (!CLUSTER_KEYS.includes(t.cluster)) continue;
+      if (picked.length && !picked.includes(t.cluster)) continue;
+      if (taken.some(x => isDup(x, t)) || out.some(x => isDup(x, t))) { rejected.push(t); continue; }
+      if (!picked.length) {
+        if ((perCluster[t.cluster] || 0) >= maxPer) continue;
+        if (GENRE_RE.test(t.keyword) && genre >= maxGenre) continue;
+      }
+      perCluster[t.cluster] = (perCluster[t.cluster] || 0) + 1;
+      if (GENRE_RE.test(t.keyword)) genre++;
+      out.push(t);
     }
-    perCluster[t.cluster] = (perCluster[t.cluster] || 0) + 1;
-    if (GENRE_RE.test(t.keyword)) genre++;
-    // cảnh báo gần giống bài đã có (không loại, để biên tập viên tự quyết)
-    let best = null, bs = 0;
-    for (const p of posts) {
-      const s = Math.max(similarity(p.title, t.title), similarity(`${p.title} ${p.keywords}`, `${t.title} ${t.keyword}`));
-      if (s > bs) { bs = s; best = p; }
-    }
-    out.push({ ...t, similar: bs >= 0.35 ? best.title : '' });
   }
   const ids = new Set(unclassified.map(p => p.id));
-  const classified = (r.classified || []).filter(c => ids.has(c.id) && CLUSTER_KEYS.includes(c.cluster));
+  classified = classified.filter(c => ids.has(c.id) && CLUSTER_KEYS.includes(c.cluster));
   return { topics: out, classified };
+}
+
+// Gợi ý đang chờ để hiện trong trang quản trị. Gợi ý nào đã trùng một bài đã có (vd. bài viết tay sau đó)
+// hoặc trùng một gợi ý cũ hơn thì tự chuyển sang 'duplicate' và không hiện nữa.
+function openIdeas(lang) {
+  const taken = db.postsOfLang(lang).map(postTopic), out = [];
+  for (const i of db.openIdeas(lang, 1000).reverse()) {   // cũ → mới: giữ gợi ý có trước
+    if (taken.some(x => isDup(x, i)) || out.some(x => isDup(x, i))) db.setIdeaStatus(i.id, 'duplicate');
+    else out.push(i);
+  }
+  return out.reverse();
 }
 
 // ---------------------------------------------------------------- viết bài
@@ -570,5 +608,5 @@ function startJob(opts) {
   return job;
 }
 
-module.exports = { capabilities, CLUSTERS, suggestTopics: o => suggestTopics(o).catch(e => { throw new Error(friendlyError(e)); }),
+module.exports = { capabilities, CLUSTERS, MAX_COUNT, openIdeas, suggestTopics: o => suggestTopics(o).catch(e => { throw new Error(friendlyError(e)); }),
   startJob, getJob: id => jobs.get(id) || null, makeImage, uniqueSlug, toSlug };

@@ -351,7 +351,7 @@ function handleBlog(req, res, route) {
     return json(res, 200, { ok: true });
   }
   // Gợi ý chủ đề: các gợi ý được lưu lại (lần sau AI tránh trùng), kèm độ phủ theo nhóm chủ đề
-  const ideasPayload = lang => ({ ideas: db.openIdeas(lang), coverage: db.coverage(lang), clusters: writer.CLUSTERS.map(c => ({ key: c.key, label: c.label })) });
+  const ideasPayload = lang => ({ ideas: writer.openIdeas(lang), coverage: db.coverage(lang), clusters: writer.CLUSTERS.map(c => ({ key: c.key, label: c.label })) });
   if (route === 'GET /admin/api/blog/ideas') {
     const lang = new URL(req.url, 'http://x').searchParams.get('lang');
     if (!LANGS.includes(lang)) return json(res, 400, { error: 'Ngôn ngữ không hợp lệ.' });
@@ -362,7 +362,7 @@ function handleBlog(req, res, route) {
       if (!LANGS.includes(b.lang)) throw new Error('Ngôn ngữ không hợp lệ.');
       const keys = new Set(writer.CLUSTERS.map(c => c.key));
       const clusters = (Array.isArray(b.clusters) ? b.clusters : []).filter(c => keys.has(c));
-      const count = [5, 10, 15].includes(Number(b.count)) ? Number(b.count) : 10;
+      const count = Math.min(writer.MAX_COUNT, Math.max(5, Number(b.count) || 10));
       const r = await writer.suggestTopics({ lang: b.lang, seed: oneLine(b.seed).slice(0, 300), clusters, count });
       for (const c of r.classified) db.setPostCluster(c.id, c.cluster);
       const fresh = db.saveIdeas(b.lang, r.topics);

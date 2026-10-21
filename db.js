@@ -144,8 +144,8 @@ db.exec(`
     difficulty TEXT NOT NULL,               -- low | medium | high (độ khó lên top)
     priority TEXT NOT NULL,                 -- high | medium | low
     angle TEXT NOT NULL,
-    similar TEXT NOT NULL DEFAULT '',       -- tiêu đề bài đã có gần giống (cảnh báo trùng)
-    status TEXT NOT NULL DEFAULT 'suggested',   -- suggested | used | dismissed
+    similar TEXT NOT NULL DEFAULT '',       -- (không dùng nữa: gợi ý gần giống bài đã có bị loại hẳn)
+    status TEXT NOT NULL DEFAULT 'suggested',   -- suggested | used | dismissed | duplicate (tự ẩn vì trùng bài/gợi ý khác)
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
   );

@@ -515,7 +515,6 @@
       if (fresh.has(tp.id)) tags.prepend(el('span', { class: 'tag new', textContent: 'Mới' }));
       card.append(close, el('b', { textContent: tp.title }), el('span', { textContent: `🔑 ${tp.keyword} · ${tp.intent}` }), tags,
         el('small', { textContent: tp.angle }));
-      if (tp.similar) card.appendChild(el('small', { class: 'warn-dup', textContent: `⚠️ Gần giống bài đã có: ${tp.similar}` }));
       const pick = () => {
         ideaId = tp.id;
         $('gTopic').value = tp.title; $('gKeyword').value = tp.keyword;
@@ -532,12 +531,14 @@
 
   $('suggest').onclick = async () => {
     const b = $('suggest');
-    b.disabled = true; b.textContent = '⏳ Đang nghĩ chủ đề…';
+    b.disabled = true; b.textContent = '⏳ Đang nghĩ chủ đề (có thể mất 1–3 phút)…';
     try {
       const r = await api('POST', '/admin/api/blog/topics', { lang: $('gLang').value, seed: $('gSeed').value, clusters: [...picked], count: Number($('gCount').value) });
       fresh = new Set(r.fresh);
       renderIdeas(r);
+      const want = Number($('gCount').value);
       if (!r.fresh.length) toast('AI chưa đưa ra được chủ đề mới không trùng — thử chọn nhóm khác hoặc nhập hướng chủ đề.', true);
+      else if (r.fresh.length < want) toast(`Có ${r.fresh.length}/${want} chủ đề mới (đã loại các chủ đề trùng bài hoặc gợi ý cũ).`);
     } catch (err) { onErr(err); }
     b.disabled = false; b.textContent = '💡 Gợi ý chủ đề';
   };
