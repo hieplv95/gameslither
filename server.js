@@ -226,11 +226,14 @@ function onFreeDeath(s) {
   const len = Math.floor(s.peak), time = Math.round((Date.now() - s.bornAt) / 1000);
   const earned = Math.floor((s.peak - START_MASS) / COINS_PER_LENGTH) + s.kills * KILL_COINS;
   if (earned > 0) db.addCoins(acct, earned);
+  const newBest = len >= db.MIN_SCORE && len > db.profile(acct).len;
   db.recordLife(acct, s.kills, len, time);
-  if (len >= 50) db.addScore(acct, s.name, len, s.kills);
+  if (len >= db.MIN_SCORE) db.addScore(acct, s.name, len, s.kills);
   const done = progress(c, { len, time });
   const skins = unlockAchievements(acct, { len, time, lifeKills: s.kills });
-  return { earned, coins: db.coins(acct), mdone: done, newSkins: skins, owned: skins.length ? db.ownedSkins(acct) : undefined };
+  const hof = hallOfFame(acct, newBest);
+  if (newBest) hof.newBest = 1;
+  return { earned, coins: db.coins(acct), mdone: done, newSkins: skins, owned: skins.length ? db.ownedSkins(acct) : undefined, hof };
 }
 
 // Vòng 1 giây: nhiệm vụ độ dài / thời gian sống được chấm ngay khi đạt, không đợi tới lúc chết
@@ -255,11 +258,13 @@ function missionsInfo(c) {
     reset: Math.ceil((86400_000 - ((Date.now() + 7 * 3600_000) % 86400_000)) / 1000) };
 }
 
-// Bảng xếp hạng tuần / mọi thời đại — lưu tạm 15 giây cho đỡ truy vấn
-let hofCache = null, hofAt = 0;
-function hallOfFame() {
-  if (!hofCache || Date.now() - hofAt > 15_000) { hofCache = { t: 'hof', ...db.topScores(10) }; hofAt = Date.now(); }
-  return hofCache;
+// Bảng vàng mọi thời đại: top 10 (lưu tạm 15 giây cho đỡ truy vấn) + hạng của chính người xem.
+// mine = vị trí của người xem trong top 10 (-1 nếu không có). fresh: vừa lập kỷ lục → lấy top 10 mới nếu đã lọt top.
+let hofTop = null, hofAt = 0;
+function hallOfFame(acct, fresh) {
+  const me = acct ? db.rankOf(acct) : null;
+  if (!hofTop || Date.now() - hofAt > 15_000 || (fresh && me && me.rank <= 10)) { hofTop = db.topScores(10); hofAt = Date.now(); }
+  return { t: 'hof', all: hofTop.map(r => [r.name, r.len, r.kills]), mine: hofTop.findIndex(r => r.acct === acct), me };
 }
 
 // ---------------------------------------------------------------- tài khoản
@@ -493,7 +498,7 @@ wss.on('connection', (ws, req) => {
       case 'joinFree': joinFree(c, m); break;
       case 'buySkin': buySkin(c, m); break;
       case 'missions': send(c, missionsInfo(c)); break;
-      case 'hof': send(c, hallOfFame()); break;
+      case 'hof': send(c, hallOfFame(c.acct)); break;
       case 'recoveryCode': newRecoveryCode(c); break;
       case 'recover': recoverAccount(c, m); break;
       case 'leave':

@@ -255,11 +255,8 @@ function render(L) {
         <div id="hofModal" class="overlay hidden">
           <div class="card" dir="${L.dir}">
             <div class="card-title">🏆 ${esc(ui.hofTitle)}</div>
-            <div class="tabs hof-tabs">
-              <button data-hof="week" class="on">${esc(ui.hofWeek)}</button>
-              <button data-hof="all">${esc(ui.hofAll)}</button>
-            </div>
             <ol id="hofList" class="hof"></ol>
+            <div id="hofMe" class="hof-me hidden"></div>
             <p class="muted small">${esc(ui.hofNote)}</p>
             <button class="link" data-close>${t.close}</button>
           </div>
@@ -285,15 +282,23 @@ function render(L) {
         </div>
 
         <div id="death" class="overlay hidden">
-          <div class="card" dir="${L.dir}">
-            <div class="card-title" id="deathTitle">${t.youDied}</div>
-            <p id="deathText"></p>
-            <div id="deathStats" class="stats hidden"></div>
-            <div id="deathExtra" class="death-extra"></div>
-            <button id="again" class="btn">${t.playAgain}</button>
-            <button id="shareBtn" class="btn ghost hidden">📤 ${esc(ui.share)}</button>
-            <button id="watch" class="btn ghost hidden">${t.keepWatching}</button>
-            <button id="toMenu" class="link">${t.backLobby}</button>
+          <div class="card" id="deathCard" dir="${L.dir}">
+            <div class="death-main">
+              <div class="card-title" id="deathTitle">${t.youDied}</div>
+              <p id="deathText"></p>
+              <div id="deathStats" class="stats hidden"></div>
+              <div id="deathExtra" class="death-extra"></div>
+              <button id="again" class="btn">${t.playAgain}</button>
+              <button id="shareBtn" class="btn ghost hidden">📤 ${esc(ui.share)}</button>
+              <button id="watch" class="btn ghost hidden">${t.keepWatching}</button>
+              <button id="toMenu" class="link">${t.backLobby}</button>
+            </div>
+            <div id="deathHof" class="death-hof hidden">
+              <div class="sub-title">🏆 ${esc(ui.hofTitle)}</div>
+              <ol id="deathHofList" class="hof"></ol>
+              <div id="deathHofMe" class="hof-me hidden"></div>
+              <p class="muted small">${esc(ui.hofNote)}</p>
+            </div>
           </div>
         </div>
 

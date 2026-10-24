@@ -6,6 +6,7 @@ const crypto = require('crypto');
 const { DatabaseSync } = require('node:sqlite');
 
 const UNIT = 1_000_000;
+const MIN_SCORE = 50;   // độ dài tối thiểu để vào bảng xếp hạng
 const HOUSE_ID = 0; // tài khoản nhà cái (thu phí)
 
 const db = new DatabaseSync(process.env.DB_PATH || path.join(__dirname, 'data.sqlite'));
@@ -170,6 +171,8 @@ db.exec(`
   add('recovery_hash', 'TEXT');                        // mã khôi phục tài khoản (đã băm)
 }
 db.exec('CREATE UNIQUE INDEX IF NOT EXISTS accounts_recovery ON accounts (recovery_hash)');
+// hạng mọi thời đại của người chơi = đếm theo kỷ lục độ dài (best_len)
+db.exec('CREATE INDEX IF NOT EXISTS accounts_best ON accounts (best_len)');
 // nhóm chủ đề của bài viết (để thống kê độ phủ); bài cũ được AI phân loại ở lần gợi ý chủ đề kế tiếp
 if (!db.prepare('PRAGMA table_info(posts)').all().some(c => c.name === 'cluster')) {
   db.exec("ALTER TABLE posts ADD COLUMN cluster TEXT NOT NULL DEFAULT ''");
@@ -210,8 +213,9 @@ const q = {
   dailyDone: db.prepare('UPDATE daily SET done = ? WHERE account_id = ? AND day = ?'),
   addScore: db.prepare('INSERT INTO scores (account_id, name, length, kills, week, ts) VALUES (?, ?, ?, ?, ?, ?)'),
   // Mỗi tài khoản chỉ lấy ván dài nhất (SQLite trả các cột còn lại theo đúng dòng có MAX)
-  topWeek: db.prepare('SELECT name, MAX(length) length, kills FROM scores WHERE week = ? GROUP BY account_id ORDER BY length DESC LIMIT ?'),
-  topAll: db.prepare('SELECT name, MAX(length) length, kills FROM scores GROUP BY account_id ORDER BY length DESC LIMIT ?'),
+  topAll: db.prepare('SELECT account_id, name, MAX(length) length, kills FROM scores GROUP BY account_id ORDER BY length DESC LIMIT ?'),
+  // số người có kỷ lục cao hơn / thấp hơn / tổng (chỉ tính kỷ lục từ độ dài 50, như bảng scores)
+  rankOf: db.prepare('SELECT SUM(best_len > ?) above, SUM(best_len < ?) below, COUNT(*) total FROM accounts WHERE best_len >= ?'),
 };
 const dailyRow = r => ({ kills: Number(r?.kills || 0), games: Number(r?.games || 0), len: Number(r?.best_len || 0),
   time: Number(r?.best_time || 0), done: r?.done ? r.done.split(',').map(Number) : [] });
@@ -407,7 +411,7 @@ module.exports = {
   },
 
   // ---------------------------------------------------------------- hồ sơ, chuỗi đăng nhập, nhiệm vụ
-  dayOf, weekOf,
+  dayOf, weekOf, MIN_SCORE,
   profile(accountId) {
     const r = q.profile.get(accountId) || {};
     return { kills: Number(r.total_kills || 0), len: Number(r.best_len || 0), time: Number(r.best_time || 0),
@@ -458,8 +462,16 @@ module.exports = {
     q.addScore.run(accountId, name, Math.floor(length), kills, weekOf(ts), ts);
   },
   topScores(limit = 10) {
-    const map = r => [r.name, Number(r.length), Number(r.kills)];
-    return { week: q.topWeek.all(weekOf(Date.now()), limit).map(map), all: q.topAll.all(limit).map(map) };
+    return q.topAll.all(limit).map(r => ({ acct: Number(r.account_id), name: r.name, len: Number(r.length), kills: Number(r.kills) }));
+  },
+  // Hạng mọi thời đại theo kỷ lục độ dài; null nếu chưa có ván nào dài từ MIN_SCORE
+  rankOf(accountId) {
+    const len = Number(q.profile.get(accountId)?.best_len || 0);
+    if (len < MIN_SCORE) return null;
+    const r = q.rankOf.get(len, len, MIN_SCORE);
+    const total = Number(r.total);
+    // "giỏi hơn p% người chơi" = tỉ lệ người có kỷ lục thấp hơn trong số những người còn lại
+    return { rank: Number(r.above) + 1, total, len, better: total > 1 ? Math.floor(Number(r.below) / (total - 1) * 100) : null };
   },
 
   // ---------------------------------------------------------------- thống kê & cài đặt

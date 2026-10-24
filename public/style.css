@@ -190,6 +190,31 @@ canvas#game { position: absolute; inset: 0; width: 100%; height: 100%; display: 
 .hof li small { color: #93a4b8; font-size: 12px; }
 .hof li b { color: var(--gold); font-variant-numeric: tabular-nums; min-width: 52px; text-align: right; }
 .hof li.empty { color: #93a4b8; justify-content: center; }
+.hof li.me { background: rgba(124,255,107,0.12); box-shadow: inset 0 0 0 1px rgba(124,255,107,0.4); }
+.hof li.me .n { color: var(--green); flex: 0 1 auto; margin-right: auto; }
+.hof .new, .hof-me .new { font-style: normal; background: var(--gold); color: #1a1200; font-size: 10.5px; font-weight: 900; border-radius: 99px; padding: 0 7px; white-space: nowrap; }
+/* dòng "Bạn" dưới top 10 */
+.hof-me { display: flex; align-items: center; gap: 10px; text-align: left; margin: 4px 0 8px; padding: 9px 12px; border-radius: 12px;
+  background: rgba(124,255,107,0.1); border: 1px solid rgba(124,255,107,0.35); }
+.hof-me .rk { font-weight: 900; font-size: 18px; color: var(--green); font-variant-numeric: tabular-nums; min-width: 58px; }
+.hof-me .t { flex: 1; min-width: 0; line-height: 1.35; }
+.hof-me .t strong { font-size: 14px; margin-right: 4px; }
+.hof-me .t small { display: block; font-size: 13px; color: var(--muted); }
+.hof-me b { color: var(--gold); font-variant-numeric: tabular-nums; font-size: 15px; }
+.hof-me.none { justify-content: center; text-align: center; font-size: 13px; color: var(--muted); background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.1); }
+/* màn hình kết quả kèm bảng vàng: màn rộng chia 2 cột, màn hẹp xếp dọc dưới nút Chơi lại */
+.death-hof { margin-top: 16px; padding-top: 4px; border-top: 1px solid rgba(255,255,255,0.08); }
+.death-hof .sub-title { text-align: center; margin-top: 10px; }
+.death-hof .hof li { padding: 5px 10px; }
+.death-hof .muted { margin: 0; }
+/* màn hẹp: thẻ kết quả cao gần hết khung game → chừa chỗ cho nút toàn màn hình / âm thanh ở góc trên */
+@media (max-width: 759px) { #death { padding-top: 60px; } }
+@media (min-width: 760px) {
+  .game-wrap .card.with-hof { max-width: 780px; display: grid; grid-template-columns: 1fr 1fr; gap: 24px; align-items: start; }
+  .with-hof .death-hof { margin-top: 0; padding: 0 0 0 24px; border-top: 0; border-left: 1px solid rgba(255,255,255,0.08); }
+  .with-hof .death-hof .sub-title { margin-top: 0; }
+  [dir="rtl"] .with-hof .death-hof { padding: 0 24px 0 0; border-left: 0; border-right: 1px solid rgba(255,255,255,0.08); }
+}
 
 /* tài khoản */
 .code-box { margin: 12px 0 0; }

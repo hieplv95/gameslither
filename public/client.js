@@ -511,15 +511,15 @@
   }
 
   // ------------------------------------------------------------ bảng vàng
-  let hof = null, hofTab = 'week';
-  $('openHof').onclick = () => { sendMsg({ t: 'hof' }); show('hofModal'); renderHof(); };
-  for (const b of document.querySelectorAll('[data-hof]')) b.onclick = () => { hofTab = b.dataset.hof; renderHof(); };
-  function renderHof() {
-    for (const b of document.querySelectorAll('[data-hof]')) b.classList.toggle('on', b.dataset.hof === hofTab);
-    const ol = $('hofList');
+  // h = { all: [[tên, độ dài, mạng hạ]], mine: vị trí của mình trong top (-1 nếu không), me: { rank, total, len, better } | null, newBest }
+  let hof = null;
+  $('openHof').onclick = () => { sendMsg({ t: 'hof' }); show('hofModal'); renderHof($('hofList'), $('hofMe'), hof); };
+  function renderHof(ol, meBox, h) {
     ol.textContent = '';
-    const rows = hof ? hof[hofTab] : [];
-    if (hof && !rows.length) { const li = document.createElement('li'); li.className = 'empty'; li.textContent = T('hofEmpty'); ol.appendChild(li); }
+    meBox.textContent = '';
+    const rows = h ? h.all : [];
+    if (h && !rows.length) { const li = document.createElement('li'); li.className = 'empty'; li.textContent = T('hofEmpty'); ol.appendChild(li); }
+    const badge = () => { const e = document.createElement('em'); e.className = 'new'; e.textContent = T('hofNewBest'); return e; };
     rows.forEach(([name, len, kills], i) => {
       const li = document.createElement('li');
       const medal = document.createElement('i'); medal.textContent = ['🥇', '🥈', '🥉'][i] || `${i + 1}.`;
@@ -527,8 +527,23 @@
       const k = document.createElement('small'); k.textContent = `⚔ ${num(kills)}`;
       const m = document.createElement('b'); m.textContent = num(len);
       li.append(medal, n, k, m);
+      if (i === h.mine) { li.className = 'me'; if (h.newBest) n.after(badge()); }
       ol.appendChild(li);
     });
+    // dòng "Bạn" dưới top 10 (không cần nếu mình đã nằm trong top)
+    const me = h && h.me;
+    meBox.classList.toggle('hidden', !h || h.mine >= 0);
+    meBox.classList.toggle('none', !me);
+    if (!h || h.mine >= 0) return;
+    if (!me) { meBox.textContent = T('hofNoRank'); return; }
+    const rk = document.createElement('span'); rk.className = 'rk'; rk.textContent = '#' + num(me.rank);
+    const t = document.createElement('span'); t.className = 't';
+    const you = document.createElement('strong'); you.textContent = T('hofYou');
+    t.append(you);
+    if (h.newBest) t.append(badge());
+    if (me.better !== null) { const p = document.createElement('small'); p.textContent = T('hofBetter', { p: me.better }); t.append(p); }
+    const b = document.createElement('b'); b.textContent = num(me.len);
+    meBox.append(rk, t, b);
   }
 
   // ------------------------------------------------------------ tài khoản: mã khôi phục
@@ -554,7 +569,7 @@
   $('watch').onclick = () => { show('death', false); show('hud'); };
   $('shareBtn').onclick = () => shareRun();
 
-  // opts: { again, againLabel, watch, stats: [[nhãn, giá trị]], extra: [dòng], share }
+  // opts: { again, againLabel, watch, stats: [[nhãn, giá trị]], extra: [dòng], share, hof (bảng vàng, chỉ phòng miễn phí) }
   function showDeath(title, text, opts) {
     $('deathTitle').textContent = title;
     $('deathText').textContent = text;
@@ -576,6 +591,9 @@
     show('watch', !!opts.watch);
     show('shareBtn', !!opts.share);
     show('toMenu', !opts.againLabel);
+    show('deathHof', !!opts.hof);
+    $('deathCard').classList.toggle('with-hof', !!opts.hof);
+    if (opts.hof) renderHof($('deathHofList'), $('deathHofMe'), opts.hof);
     show('death');
   }
 
@@ -681,7 +699,7 @@
         for (const line of missionLines(m.list)) toast(line);
         if (m.list.length) { sfx.coin(); show('missionDot'); }
         break;
-      case 'hof': hof = m; renderHof(); break;
+      case 'hof': hof = m; renderHof($('hofList'), $('hofMe'), hof); break;
       case 'recovery':
         $('codeText').textContent = m.code;
         show('codeBox');
@@ -763,7 +781,7 @@
             if (m.earned !== undefined) stats.push([T('statCoins'), '+' + num(Math.max(0, m.earned))]);
             const why = m.by ? T('killedBy', { name: m.by }) : T('hitWall');
             showDeath(T('youDied'), why.charAt(0).toUpperCase() + why.slice(1),
-              { again: true, stats, share: true, extra: [...missionLines(m.mdone), ...skinLines(m.newSkins)] });
+              { again: true, stats, share: true, extra: [...missionLines(m.mdone), ...skinLines(m.newSkins)], hof: m.hof });
           }
         }, 1200);
         break;
