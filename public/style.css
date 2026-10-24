@@ -307,6 +307,9 @@ details p { margin: 0 0 14px; }
 .footer-grid nav { display: flex; flex-direction: column; gap: 6px; }
 .footer-grid nav a { color: var(--muted); text-decoration: none; font-size: 14px; }
 .footer-grid nav a:hover { color: var(--text); }
+.footer-social { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.footer-social a { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 10px; color: var(--muted); background: rgba(255,255,255,.03); border: 1px solid var(--line); transition: color .15s, background-color .15s, border-color .15s; }
+.footer-social a:hover, .footer-social a:focus-visible { color: var(--text); background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.18); }
 .footer-title { font-weight: 800; font-size: 14px; text-transform: uppercase; letter-spacing: .5px; margin-bottom: 4px; }
 .footer-bottom { border-top: 1px solid var(--line); padding-top: 16px; padding-bottom: 20px; color: var(--dim); font-size: 13px; }
 @media (max-width: 760px) { .footer-grid { grid-template-columns: 1fr 1fr; } .footer-brand, .footer-note { grid-column: 1 / -1; } }

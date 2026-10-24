@@ -198,6 +198,7 @@ ${o.body}
       <div class="footer-brand">
         <a class="brand" href="${L.path}"><img src="/favicon.svg" alt="" width="28" height="28"><span>Game<b>Slither</b></span></a>
         <p>${t.footerTagline}</p>
+        {{SOCIAL_LINKS}}
       </div>
       <nav aria-label="${esc(stripTags(t.footerGame))}">
         <div class="footer-title">${t.footerGame}</div>
@@ -234,7 +235,7 @@ function card(L, p, headingTag = 'h2') {
     </article>`;
 }
 
-const org = { '@type': 'Organization', '@id': '{{SITE_URL}}/#org', name: 'GameSlither', url: '{{SITE_URL}}/', logo: '{{SITE_URL}}/favicon.svg' };
+const org = { '@type': 'Organization', '@id': '{{SITE_URL}}/#org', name: 'GameSlither', url: '{{SITE_URL}}/', logo: '{{SITE_URL}}/favicon.svg', sameAs: '{{SAME_AS}}' };
 const crumbs = items => ({ '@type': 'BreadcrumbList', itemListElement: items.map(([name, url], i) => ({ '@type': 'ListItem', position: i + 1, name, item: `{{SITE_URL}}${url}` })) });
 
 // ---------------------------------------------------------------- trang danh sách

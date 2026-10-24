@@ -64,11 +64,59 @@ const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;'
 // Điền tiêu đề / mô tả / từ khoá / mã Search Console vào trang theo ngôn ngữ của trang
 function applySeo(html, lang = 'en') {
   const all = seo(), s = all[LANGS.includes(lang) ? lang : 'en'];
-  return html
+  return applySocial(html
     .replaceAll('{{SEO_TITLE}}', esc(s.title))
     .replaceAll('{{SEO_DESCRIPTION}}', esc(s.description))
     .replaceAll('{{SEO_KEYWORDS}}', esc(s.keywords))
-    .replace('{{GSC_META}}', all.gsc ? `<meta name="google-site-verification" content="${esc(all.gsc)}">` : '');
+    .replace('{{GSC_META}}', all.gsc ? `<meta name="google-site-verification" content="${esc(all.gsc)}">` : ''));
+}
+
+// ---------------------------------------------------------------- mạng xã hội
+// Link dùng chung mọi ngôn ngữ, khoá 'social.<mạng>'. Icon SVG nhúng thẳng (viewBox 24×24, tô bằng currentColor).
+const SOCIAL = [
+  { key: 'facebook', name: 'Facebook', placeholder: 'https://www.facebook.com/…',
+    svg: '<path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>' },
+  { key: 'youtube', name: 'YouTube', placeholder: 'https://www.youtube.com/@…',
+    svg: '<path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/>' },
+  { key: 'tiktok', name: 'TikTok', placeholder: 'https://www.tiktok.com/@…',
+    svg: '<path d="M12.525.02c1.31-.02 2.61-.01 3.91-.02.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z"/>' },
+  { key: 'x', name: 'X', placeholder: 'https://x.com/…',
+    svg: '<path d="M18.901 1.153h3.68l-8.04 9.19L24 22.846h-7.406l-5.8-7.584-6.638 7.584H.474l8.6-9.83L0 1.154h7.594l5.243 6.932ZM17.61 20.644h2.039L6.486 3.24H4.298Z"/>' },
+  { key: 'instagram', name: 'Instagram', placeholder: 'https://www.instagram.com/…',
+    svg: '<rect x="2" y="2" width="20" height="20" rx="5.5" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="4.6" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="17.7" cy="6.3" r="1.35"/>' },
+  { key: 'pinterest', name: 'Pinterest', placeholder: 'https://www.pinterest.com/…',
+    svg: '<path d="M12.017 0C5.396 0 .029 5.367.029 11.987c0 5.079 3.158 9.417 7.618 11.162-.105-.949-.199-2.403.041-3.439.219-.937 1.406-5.957 1.406-5.957s-.359-.72-.359-1.781c0-1.663.967-2.911 2.168-2.911 1.024 0 1.518.769 1.518 1.688 0 1.029-.653 2.567-.992 3.992-.285 1.193.6 2.165 1.775 2.165 2.128 0 3.768-2.245 3.768-5.487 0-2.861-2.063-4.869-5.008-4.869-3.41 0-5.409 2.562-5.409 5.199 0 1.033.394 2.143.889 2.741.099.12.112.225.085.345-.09.375-.293 1.199-.334 1.363-.053.225-.172.271-.401.165-1.495-.69-2.433-2.878-2.433-4.646 0-3.776 2.748-7.252 7.92-7.252 4.158 0 7.392 2.967 7.392 6.923 0 4.135-2.607 7.462-6.233 7.462-1.214 0-2.354-.629-2.758-1.379l-.749 2.848c-.269 1.045-1.004 2.352-1.498 3.146 1.123.345 2.306.535 3.55.535 6.607 0 11.985-5.365 11.985-11.987C23.97 5.39 18.592.026 11.985.026L12.017 0z"/>' },
+];
+const SOCIAL_MAX = 300;
+let socialCache = null;
+// { facebook: 'https://…' | '', youtube: …, … }
+function social() {
+  if (!socialCache) {
+    const s = db.getSettings();
+    socialCache = Object.fromEntries(SOCIAL.map(n => [n.key, s[`social.${n.key}`] || '']));
+  }
+  return socialCache;
+}
+// Rỗng → ''. Thiếu "https://" thì tự thêm. Chỉ nhận http(s). Trả về null nếu không hợp lệ.
+function cleanUrl(v) {
+  v = String(v).replace(/[\u0000-\u001f\s]/g, '');
+  if (!v) return '';
+  if (!/^[a-z][a-z0-9+.-]*:/i.test(v)) v = 'https://' + v.replace(/^\/+/, '');
+  let u;
+  try { u = new URL(v); } catch { return null; }
+  if (!/^https?:$/.test(u.protocol) || !u.hostname.includes('.') || u.username || u.password) return null;
+  return u.href.length > SOCIAL_MAX ? null : u.href;
+}
+
+// Chân trang: {{SOCIAL_LINKS}} → hàng icon (chỉ mạng đã có link, không có mạng nào thì bỏ trống).
+// JSON-LD: Organization có "sameAs":"{{SAME_AS}}" → mảng link, hoặc gỡ hẳn khi chưa có link nào.
+function applySocial(html) {
+  const s = social(), on = SOCIAL.filter(n => s[n.key]);
+  const links = on.map(n => `<a href="${esc(s[n.key])}" target="_blank" rel="noopener me" aria-label="${n.name}" title="${n.name}">`
+    + `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true" focusable="false">${n.svg}</svg></a>`).join('');
+  return html
+    .replaceAll('{{SOCIAL_LINKS}}', on.length ? `<div class="footer-social">${links}</div>` : '')
+    .replaceAll(',"sameAs":"{{SAME_AS}}"', on.length ? `,"sameAs":${JSON.stringify(on.map(n => s[n.key])).replace(/</g, '\\u003c')}` : '');
 }
 
 // ---------------------------------------------------------------- nhận diện khách
@@ -256,7 +304,30 @@ function handle(req, res, p, getLive) {
     return true;
   }
 
-  if (route === 'GET /admin/api/settings') { json(res, 200, { seo: seo(), defaults: SEO_DEFAULTS, langs: LANG_LIST }); return true; }
+  if (route === 'GET /admin/api/settings') {
+    json(res, 200, { seo: seo(), defaults: SEO_DEFAULTS, langs: LANG_LIST,
+      social: social(), networks: SOCIAL.map(({ key, name, placeholder }) => ({ key, name, placeholder })) });
+    return true;
+  }
+
+  if (route === 'PUT /admin/api/social') {
+    readJson(req).then(body => {
+      // body: { social: { facebook: 'https://…', youtube: '', … } }
+      const inp = body && body.social;
+      if (!inp || typeof inp !== 'object') return json(res, 400, { error: 'Thiếu dữ liệu' });
+      const out = {};
+      for (const n of SOCIAL) {
+        if (typeof inp[n.key] !== 'string') continue;
+        const v = cleanUrl(inp[n.key]);
+        if (v === null) return json(res, 400, { error: `Link ${n.name} không hợp lệ — cần là địa chỉ http(s)://, tối đa ${SOCIAL_MAX} ký tự.` });
+        out[`social.${n.key}`] = v;
+      }
+      db.setSettings(out);
+      socialCache = null;
+      json(res, 200, { ok: true, social: social() });
+    }).catch(() => json(res, 400, { error: 'Dữ liệu không hợp lệ' }));
+    return true;
+  }
 
   if (route === 'PUT /admin/api/settings') {
     readJson(req).then(body => {
@@ -429,9 +500,9 @@ function preview(req, res, p) {
   if (!isAuthed(req) || mustChange()) { res.writeHead(302, { Location: '/admin' }); res.end(); return; }
   const post = db.getPost(Number(p.slice('/admin/preview/'.length)) || 0);
   if (!post) { res.writeHead(404); res.end('Không tìm thấy bài'); return; }
-  const html = blog.renderPost(blog.BY_CODE.get(post.lang) || LOCALES[0], post, { preview: true }).replaceAll('{{SITE_URL}}', '');
+  const html = applySocial(blog.renderPost(blog.BY_CODE.get(post.lang) || LOCALES[0], post, { preview: true }).replaceAll('{{SITE_URL}}', ''));
   res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'X-Robots-Tag': 'noindex, nofollow', 'Cache-Control': 'no-store' });
   res.end(html);
 }
 
-module.exports = { handle, applySeo, trackVisit, countryOf };
+module.exports = { handle, applySeo, applySocial, trackVisit, countryOf };

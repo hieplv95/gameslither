@@ -91,7 +91,7 @@ const server = http.createServer((req, res) => {
   if (b) {
     if (b.location) { res.writeHead(301, { Location: b.location }); return res.end(); }
     res.writeHead(b.code, { 'Content-Type': b.type });
-    return res.end(b.body.replaceAll('{{SITE_URL}}', SITE_URL));
+    return res.end(panel.applySocial(b.body.replaceAll('{{SITE_URL}}', SITE_URL)));   // link mạng xã hội ở chân trang + sameAs
   }
   const page = PAGES.get(p);
   if (page) {

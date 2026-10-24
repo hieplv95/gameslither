@@ -1,6 +1,6 @@
 'use strict';
 // Dựng trang chủ cho từng ngôn ngữ từ 1 khung chung + file bản dịch trong locales/.
-// Kết quả còn các chỗ trống {{SITE_URL}}, {{SEO_*}}, {{GSC_META}}, {{LATEST_POSTS}} và khối <!--PAID-->…<!--/PAID-->,
+// Kết quả còn các chỗ trống {{SITE_URL}}, {{SEO_*}}, {{GSC_META}}, {{SOCIAL_LINKS}}, {{SAME_AS}}, {{LATEST_POSTS}} và khối <!--PAID-->…<!--/PAID-->,
 // <!--BLOG-->…<!--/BLOG-->, server.js điền/gỡ khi trả trang.
 const fs = require('fs');
 const path = require('path');
@@ -30,7 +30,7 @@ function jsonLd(L) {
   return {
     '@context': 'https://schema.org',
     '@graph': [
-      { '@type': 'Organization', '@id': '{{SITE_URL}}/#org', name: 'GameSlither', url: '{{SITE_URL}}/', logo: '{{SITE_URL}}/favicon.svg' },
+      { '@type': 'Organization', '@id': '{{SITE_URL}}/#org', name: 'GameSlither', url: '{{SITE_URL}}/', logo: '{{SITE_URL}}/favicon.svg', sameAs: '{{SAME_AS}}' },
       { '@type': 'WebSite', '@id': '{{SITE_URL}}/#website', name: 'GameSlither', url: '{{SITE_URL}}/',
         inLanguage: LOCALES.map(l => l.htmlLang), publisher: { '@id': '{{SITE_URL}}/#org' } },
       { '@type': 'WebPage', '@id': `${url}#webpage`, url, name: stripTags(t.h1), inLanguage: L.htmlLang,
@@ -390,6 +390,7 @@ function render(L) {
       <div class="footer-brand">
         <a class="brand" href="${L.path}"><img src="/favicon.svg" alt="" width="28" height="28"><span>Game<b>Slither</b></span></a>
         <p>${t.footerTagline}</p>
+        {{SOCIAL_LINKS}}
       </div>
       <nav aria-label="${esc(stripTags(t.footerGame))}">
         <div class="footer-title">${t.footerGame}</div>

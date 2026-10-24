@@ -331,7 +331,33 @@
     seoDefaults = r.defaults; seoAll = r.seo; seoLangs = r.langs;
     renderLangButtons();
     fillSeo(seoAll[seoLang], seoAll.gsc);
+    renderSocial(r.networks, r.social);
   }
+
+  // Link mạng xã hội: 1 ô cho mỗi mạng (danh sách do server trả về), dùng chung mọi ngôn ngữ
+  let socialNets = [];
+  function renderSocial(nets, values) {
+    socialNets = nets;
+    const box = $('socialFields');
+    box.textContent = '';
+    for (const n of nets) {
+      const label = document.createElement('label');
+      const input = document.createElement('input');
+      Object.assign(input, { id: 'social-' + n.key, type: 'text', inputMode: 'url', maxLength: 300, placeholder: n.placeholder,
+        autocomplete: 'off', spellcheck: false, value: values[n.key] || '' });
+      label.append(n.name, input);
+      box.appendChild(label);
+    }
+  }
+  $('socialForm').onsubmit = async e => {
+    e.preventDefault();
+    try {
+      const social = Object.fromEntries(socialNets.map(n => [n.key, $('social-' + n.key).value]));
+      const r = await api('PUT', '/admin/api/social', { social });
+      for (const n of socialNets) $('social-' + n.key).value = r.social[n.key];
+      toast('Đã lưu link mạng xã hội.');
+    } catch (err) { toast(err.message, true); }
+  };
   function fillSeo(s, gsc) {
     $('sTitle').value = s.title; $('sDesc').value = s.description; $('sKeys').value = s.keywords;
     if (gsc !== undefined) $('sGsc').value = gsc;

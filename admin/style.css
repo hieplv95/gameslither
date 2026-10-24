@@ -113,6 +113,9 @@ code { background: var(--surface-2); border-radius: 4px; padding: 0 5px; }
 .hint { font-weight: 400; color: var(--muted); font-size: 12.5px; }
 .hint .warn { color: #fab219; font-weight: 700; }
 .form-actions { display: flex; gap: 10px; }
+.social-panel { margin-top: 14px; display: grid; gap: 14px; }
+.social-panel .panel-head, .social-panel .note { margin: 0; }
+.social-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
 .serp { background: #fff; color: #202124; border-radius: 10px; padding: 16px; font-family: arial, sans-serif; }
 .serp-url { font-size: 13px; color: #4d5156; }
 .serp-title { font-size: 20px; color: #1a0dab; margin: 4px 0; line-height: 1.3; }
